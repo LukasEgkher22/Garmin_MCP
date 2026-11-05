@@ -34,6 +34,47 @@ Bike `% FTP` targets are stored as % FTP (not fixed watts), so the watch
 recalculates the watts if your FTP changes. Set or check your FTP in Garmin
 Connect (User Settings → Power Zones) so the watts are right.
 
+## Easy setup with Claude
+
+Not technical? Claude can do most of the setup for you. This needs a version of
+Claude that can run commands on your PC, such as the Code tab in the desktop app
+or Claude Code. A normal chat can't do it. This route hasn't been fully tested
+yet, so if it gets stuck, use the manual steps below.
+
+1. On the GitHub page, click **Code → Download ZIP**, then unzip it somewhere fixed,
+   e.g. `C:\Users\<you>\code\garmin-mcp`.
+2. Open that folder in Claude and paste this prompt:
+
+   ```text
+   This folder contains garmin-mcp, a tool that connects my Garmin data to the
+   Claude desktop app. I'm not technical, so please set it up for me on Windows
+   and explain each step in one simple sentence.
+
+   First read README.md, server.py and login.py, and tell me briefly what the tool
+   does and whether anything looks unsafe. Wait for my OK before you continue.
+
+   Then:
+   1. Check that Python 3.11 or newer is installed. If it isn't, help me install it.
+   2. Create the virtual environment in this folder and install requirements.txt.
+   3. Garmin login: never ask for my password or MFA code, and don't run the login
+      yourself. Give me the exact command to paste into my own PowerShell window,
+      using the full path to this folder. Wait until I tell you it worked.
+   4. Check that server.py starts without errors, then stop it again.
+   5. Add the "garmin" server to my claude_desktop_config.json, using the real paths
+      on this PC. If you can't find the file, ask me to open it through Settings →
+      Developer → Edit Config. Make a backup first, and keep everything already in
+      the file.
+   6. Last, tell me to fully quit Claude (right-click the tray icon → Quit), reopen
+      it, and look for "garmin" in the connectors menu of a new chat. Warn me that
+      quitting will end this session.
+
+   Ask me if anything is unclear or fails. Don't do anything that isn't on this list.
+   ```
+
+You still do three things yourself: approve the actions Claude asks about, type
+your Garmin password in your own PowerShell window (never in the chat), and restart
+Claude at the end.
+
 ## Setup on Windows
 
 1. **Install Python 3.11+** from python.org (tick "Add python.exe to PATH").
