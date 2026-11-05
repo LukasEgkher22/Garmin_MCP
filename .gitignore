@@ -1,0 +1,9 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Private data: never commit tokens, secrets or cached Garmin data
+.garminconnect/
+.env
+*.sqlite

@@ -1,0 +1,1197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training dashboard</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #6f6d68;
+  --mark-muted: #b4b2aa; --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,.10); --wash: rgba(11,11,11,.05);
+  --run: #2a78d6; --bike: #eb6834; --swim: #1baf7a; --other: #898781;
+  --accent: #6250d6; --fatigue: #e87ba4;
+  --z1: #86b6ef; --z2: #5598e7; --z3: #2a78d6; --z4: #1c5cab; --z5: #104281; --z6: #0d366b; --z7: #082a55;
+  --good: #0ca30c; --good-text: #006300; --warning: #fab219; --critical: #d03b3b;
+  --good-wash: rgba(12,163,12,.09); --critical-wash: rgba(208,59,59,.09);
+  --zi1: #0b0b0b; --zi2: #fff; --zi3: #fff; --zi4: #fff; --zi5: #fff; --zi6: #fff; --zi7: #fff;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #9b9991;
+  --mark-muted: #5e5d58; --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,.10); --wash: rgba(255,255,255,.06);
+  --run: #3987e5; --bike: #d95926; --swim: #199e70; --other: #898781;
+  --accent: #9085e9; --fatigue: #d55181;
+  --z1: #184f95; --z2: #256abf; --z3: #3987e5; --z4: #6da7ec; --z5: #9ec5f4; --z6: #b7d3f6; --z7: #cde2fb;
+  --good-text: #0ca30c; --good-wash: rgba(12,163,12,.14); --critical-wash: rgba(208,59,59,.16);
+  --zi1: #fff; --zi2: #fff; --zi3: #fff; --zi4: #0b0b0b; --zi5: #0b0b0b; --zi6: #0b0b0b; --zi7: #0b0b0b;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+a { color: inherit; }
+button, input, select { font: inherit; color: inherit; }
+header { position: sticky; top: 0; z-index: 5; background: var(--page); border-bottom: 1px solid var(--border); }
+.bar { max-width: 1400px; margin: 0 auto; padding: 10px 20px; display: flex; gap: 6px 18px; align-items: center; flex-wrap: wrap; }
+nav { display: flex; gap: 2px; flex-wrap: wrap; }
+nav a { padding: 6px 12px; border-radius: 6px; text-decoration: none; color: var(--ink2); }
+nav a:hover { background: var(--wash); }
+nav a[aria-current="page"] { background: var(--wash); color: var(--ink); font-weight: 600; }
+.spacer { flex: 1; }
+.sync { color: var(--muted); font-size: 12.5px; }
+.btn { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.btn:hover { background: var(--wash); }
+.btn[disabled] { opacity: .55; cursor: default; }
+main { max-width: 1400px; margin: 0 auto; padding: 16px 20px 60px; transition: opacity .15s; }
+main.busy { opacity: .6; }
+.filters { display: flex; gap: 8px 20px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; background: var(--surface); }
+.seg button { background: none; border: 0; padding: 5px 11px; cursor: pointer; color: var(--ink2); display: inline-flex; align-items: center; gap: 6px; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button:hover { background: var(--wash); }
+.seg button[aria-pressed="true"] { background: var(--wash); color: var(--ink); font-weight: 600; }
+.search { padding: 5px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); min-width: 220px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+.grid { display: grid; gap: 14px; }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); }
+.g3 { grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
+.tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); margin-bottom: 14px; }
+.card, .tile, .hero { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+.tile { padding: 11px 14px; min-width: 0; }
+.tile .label { color: var(--ink2); font-size: 12.5px; }
+.tile .value { font-size: 24px; font-weight: 600; line-height: 1.25; }
+.tile .value small { font-size: 13px; font-weight: 500; color: var(--ink2); margin-left: 2px; }
+.tile .delta { font-size: 12px; color: var(--muted); }
+.up-good { color: var(--good-text); }
+.up-bad { color: var(--critical); }
+.tile svg { display: block; margin-top: 6px; width: 100%; height: 26px; }
+.hero { padding: 16px 20px; margin-bottom: 14px; display: flex; gap: 8px 28px; flex-wrap: wrap; align-items: center; }
+.hero .figure { font-size: 54px; font-weight: 600; line-height: 1; }
+.hero .state { font-size: 17px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+.hero p { margin: 3px 0 0; color: var(--ink2); max-width: 620px; }
+.hero .second { margin-left: auto; padding-left: 22px; border-left: 1px solid var(--grid); max-width: 400px; }
+.hero .second b { font-size: 15px; }
+.card { padding: 13px 15px 10px; min-width: 0; }
+.card + .card:not(.grid > .card) { margin-top: 14px; }
+.section { margin-bottom: 14px; }
+.card-head { display: flex; gap: 12px; align-items: flex-start; }
+.card-head h2 { font-size: 14px; font-weight: 600; margin: 0; }
+.card-head p { margin: 1px 0 0; font-size: 12.5px; color: var(--muted); }
+.card-head .btn { margin-left: auto; font-size: 12px; padding: 2px 8px; color: var(--muted); flex: none; }
+.legend { display: flex; flex-wrap: wrap; gap: 3px 13px; margin: 7px 0 2px; font-size: 12.5px; color: var(--ink2); }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.key-line { width: 14px; height: 2px; border-radius: 1px; display: inline-block; }
+.key-rect { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.plot { width: 100%; margin-top: 4px; }
+.plot svg { display: block; overflow: visible; touch-action: pan-y; }
+.plot svg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+svg text { font: 11px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--muted); font-variant-numeric: tabular-nums; }
+svg text.end { fill: var(--ink2); font-weight: 600; }
+.wrap { overflow: auto; max-height: 420px; margin-top: 6px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th { text-align: left; font-weight: 600; color: var(--ink2); position: sticky; top: 0; background: var(--surface); white-space: nowrap; }
+th, td { padding: 5px 9px; border-bottom: 1px solid var(--grid); }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tbody tr.link { cursor: pointer; }
+tbody tr.link:hover { background: var(--wash); }
+th button { background: none; border: 0; padding: 0; cursor: pointer; font-weight: 600; color: inherit; }
+.name { display: inline-flex; align-items: center; gap: 7px; }
+.segbar { display: flex; gap: 2px; height: 28px; margin-top: 8px; }
+.segbar div { min-width: 0; border-radius: 4px; color: #fff; font-size: 12px; font-weight: 600; padding: 5px 7px; white-space: nowrap; overflow: visible; }
+.empty { color: var(--muted); padding: 34px 10px; text-align: center; }
+.banner { background: var(--critical-wash); border: 1px solid var(--critical); border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; }
+.note { color: var(--muted); font-size: 12.5px; margin: 14px 2px 0; max-width: 880px; }
+#tip { position: fixed; z-index: 20; pointer-events: none; display: none; min-width: 120px; max-width: 280px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; box-shadow: 0 3px 12px rgba(0,0,0,.16); font-size: 12.5px; }
+#tip .t { color: var(--muted); margin-bottom: 3px; }
+#tip .r { display: flex; align-items: center; gap: 7px; }
+#tip .r b { font-weight: 600; font-variant-numeric: tabular-nums; }
+#tip .r span { color: var(--ink2); }
+.cal { display: grid; grid-template-columns: repeat(7, minmax(112px, 1fr)) 104px; gap: 1px; background: var(--grid); border: 1px solid var(--grid); border-radius: 8px; overflow: hidden; min-width: 900px; }
+.cal > div { background: var(--surface); padding: 5px 6px; min-height: 92px; min-width: 0; }
+.cal .dow { min-height: 0; color: var(--muted); font-size: 12px; font-weight: 600; }
+.cal .out { background: var(--page); }
+.cal .today .num { background: var(--ink); color: var(--surface); border-radius: 4px; padding: 0 5px; font-weight: 600; }
+.num { color: var(--muted); font-size: 12px; display: inline-block; margin-bottom: 3px; }
+.chip { display: block; text-decoration: none; padding: 3px 5px; margin-bottom: 3px; border-radius: 5px; background: var(--wash); font-size: 12px; line-height: 1.3; }
+.chip:hover { outline: 1px solid var(--axis); }
+.chip .ttl { display: flex; align-items: center; gap: 5px; font-weight: 600; }
+.chip .ttl span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip .meta { color: var(--ink2); }
+.chip.plan { background: none; border: 1px solid var(--axis); }
+.chip.plan .meta { color: var(--muted); }
+.wk { font-size: 12px; color: var(--ink2); }
+.wk b { display: block; color: var(--ink); font-size: 13px; }
+.route { display: block; width: 100%; }
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <nav id="nav"></nav>
+  <span class="spacer"></span>
+  <span class="sync" id="syncText" role="status"></span>
+  <button class="btn" id="syncBtn" type="button">Sync</button>
+  <button class="btn" id="themeBtn" type="button">Theme</button>
+</div></header>
+<main id="main"></main>
+<div id="tip" role="status"></div>
+<script>
+"use strict";
+window.addEventListener("error", e => showError(e.message));
+window.addEventListener("unhandledrejection", e => showError(e.reason && e.reason.message || String(e.reason)));
+function showError(msg) {
+  const main = document.getElementById("main");
+  main.prepend(h("div", {class: "banner"}, "Something went wrong: " + msg));
+}
+
+/* ---------------------------------------------------------------- DOM helpers */
+const SVG_NS = "http://www.w3.org/2000/svg";
+function fill(node, attrs, kids) {
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  }
+  for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) node.append(kid);
+  return node;
+}
+const h = (tag, attrs, ...kids) => fill(document.createElement(tag), attrs, kids);
+const s = (tag, attrs, ...kids) => fill(document.createElementNS(SVG_NS, tag), attrs, kids);
+
+/* ---------------------------------------------------------------- dates (UTC day numbers, so DST never shifts a day) */
+const dn = iso => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / 864e5;
+const iso = n => new Date(n * 864e5).toISOString().slice(0, 10);
+const monday = n => n - ((n + 3) % 7);
+const monthStart = n => dn(iso(n).slice(0, 7) + "-01");
+const dayFmt = new Intl.DateTimeFormat("en-GB", {day: "numeric", month: "short", year: "numeric", timeZone: "UTC"});
+const dayShort = new Intl.DateTimeFormat("en-GB", {day: "numeric", month: "short", timeZone: "UTC"});
+const dowFmt = new Intl.DateTimeFormat("en-GB", {weekday: "short", timeZone: "UTC"});
+const monFmt = new Intl.DateTimeFormat("en-GB", {month: "short", timeZone: "UTC"});
+const monYearFmt = new Intl.DateTimeFormat("en-GB", {month: "long", year: "numeric", timeZone: "UTC"});
+const toDate = n => new Date(n * 864e5);
+const fmtDay = n => dayFmt.format(toDate(n));
+const fmtDayW = n => dowFmt.format(toDate(n)) + " " + dayFmt.format(toDate(n));
+
+/* ---------------------------------------------------------------- number formats */
+const nf0 = new Intl.NumberFormat("en-GB", {maximumFractionDigits: 0});
+const nf1 = new Intl.NumberFormat("en-GB", {maximumFractionDigits: 1});
+const int = v => v == null || isNaN(v) ? "–" : nf0.format(v);
+const one = v => v == null || isNaN(v) ? "–" : nf1.format(v);
+const signed = (v, f = one) => (v > 0 ? "+" : v < 0 ? "−" : "") + f(Math.abs(v));
+const km = m => m == null ? "–" : one(m / 1000) + " km";
+const hours = sec => sec == null ? "–" : one(sec / 3600) + " h";
+function clock(sec) {
+  if (sec == null || isNaN(sec)) return "–";
+  sec = Math.round(sec);
+  const H = Math.floor(sec / 3600), M = Math.floor(sec % 3600 / 60), S = sec % 60;
+  return H ? `${H}:${String(M).padStart(2, "0")}:${String(S).padStart(2, "0")}` : `${M}:${String(S).padStart(2, "0")}`;
+}
+function paceFor(sport, mps) {
+  if (!mps) return "–";
+  if (sport === "run") return clock(1000 / mps) + " /km";
+  if (sport === "swim") return clock(100 / mps) + " /100m";
+  return one(mps * 3.6) + " km/h";
+}
+const axisNum = v => Math.abs(v) >= 10000 ? nf1.format(v / 1000) + "K" : nf0.format(v);
+
+/* ---------------------------------------------------------------- state and data */
+const SPORTS = {
+  run: {label: "Run", color: "var(--run)"},
+  bike: {label: "Bike", color: "var(--bike)"},
+  swim: {label: "Swim", color: "var(--swim)"},
+  other: {label: "Other", color: "var(--other)"},
+};
+const SPORT_KEYS = Object.keys(SPORTS);
+const RANGES = {"6w": 42, "3m": 91, "6m": 182, "1y": 365, "2y": 730, "All": null};
+const TABS = [["fitness", "Fitness"], ["training", "Training"], ["recovery", "Recovery"],
+              ["performance", "Performance"], ["calendar", "Calendar"], ["activities", "Activities"]];
+const S = {range: localStorage.getItem("range") || "6m", sport: "all", search: "", sort: ["day", -1], shown: 100, calMonth: null, data: null};
+const FITNESS_DAYS = 42, FATIGUE_DAYS = 7;
+
+function sportOf(type) {
+  if (/run/.test(type)) return "run";
+  if (/cycl|bik|virtual_ride/.test(type)) return "bike";
+  if (/swim/.test(type)) return "swim";
+  return "other";
+}
+function cleanDay(r) {
+  const out = {...r};
+  // Garmin marks "not enough data" with negative stress values.
+  if (out.stress != null && out.stress <= 0) delete out.stress;
+  // Without overnight wear the resting HR is taken from a few daytime readings and runs far too high.
+  if (out.sleep == null) delete out.rhr;
+  return out;
+}
+function prepare(raw) {
+  const parents = raw.activities.filter(a => a.parent);
+  const within = a => parents.some(p => {
+    if (p === a) return false;
+    const start = Date.parse(p.startTimeLocal.replace(" ", "T")), t = Date.parse(a.startTimeLocal.replace(" ", "T"));
+    return t >= start && t < start + (p.duration || 0) * 1000;
+  });
+  // A multisport event is stored as one parent; a stray listed child would count it twice.
+  const sorted = raw.activities.slice().sort((a, b) => a.startTimeLocal < b.startTimeLocal ? -1 : 1);
+  const acts = sorted.filter(a => !within(a)).map(a => ({
+    raw: a, id: a.activityId, name: a.activityName || a.type, type: a.type, sport: sportOf(a.type),
+    day: dn(a.startTimeLocal), time: a.startTimeLocal.slice(11, 16), dist: a.distance || 0,
+    moving: a.movingDuration || a.duration || 0, speed: a.averageSpeed, hr: a.averageHR, maxHr: a.maxHR,
+    elev: a.elevationGain || 0, load: a.activityTrainingLoad || 0, np: a.normPower, tss: a.trainingStressScore,
+    te: a.aerobicTrainingEffect, power: a.avgPower,
+  }));
+  const today = dn(raw.today);
+  const days = new Map(Object.entries(raw.days).map(([k, v]) => [dn(k), cleanDay(v)]));
+  return {acts, days, today, profile: raw.profile || {}, lastSync: raw.lastSync, staleAfter: raw.staleAfter, cache: {}};
+}
+const inSport = a => S.sport === "all" || a.sport === S.sport;
+const useMonths = () => RANGES[S.range] == null || RANGES[S.range] > 200;
+function rangeStart() {
+  const D = S.data, span = RANGES[S.range];
+  if (span == null) return D.acts.length ? monthStart(D.acts[0].day) : D.today - 365;
+  return useMonths() ? monthStart(D.today - span) : monday(D.today - span);
+}
+const inRange = a => a.day >= rangeStart() && a.day <= S.data.today;
+const rangeActs = () => S.data.acts.filter(a => inSport(a) && inRange(a));
+function previousActs() {
+  const start = rangeStart(), span = S.data.today - start + 1;
+  return S.data.acts.filter(a => inSport(a) && a.day >= start - span && a.day < start);
+}
+const sumOf = (list, f) => list.reduce((t, a) => t + (f(a) || 0), 0);
+function dayRange(from, to) { const out = []; for (let d = from; d <= to; d++) out.push(d); return out; }
+
+/* Fitness = 42-day and fatigue = 7-day exponentially weighted load; form = (fitness - fatigue) / fitness. */
+function fitnessSeries(sport) {
+  const D = S.data, key = "fit:" + sport;
+  if (D.cache[key]) return D.cache[key];
+  const list = D.acts.filter(a => sport === "all" || a.sport === sport);
+  const start = D.acts.length ? D.acts[0].day : D.today;
+  const days = dayRange(start, D.today), load = new Map();
+  for (const a of list) load.set(a.day, (load.get(a.day) || 0) + a.load);
+  const ctlK = 1 - Math.exp(-1 / FITNESS_DAYS), atlK = 1 - Math.exp(-1 / FATIGUE_DAYS);
+  let ctl = 0, atl = 0;
+  const out = {days, ctl: [], atl: [], form: [], index: d => d - start};
+  for (const d of days) {
+    const L = load.get(d) || 0;
+    ctl += (L - ctl) * ctlK; atl += (L - atl) * atlK;
+    out.ctl.push(ctl); out.atl.push(atl);
+    out.form.push(ctl >= 1 ? (ctl - atl) / ctl * 100 : null);
+  }
+  return D.cache[key] = out;
+}
+const FORM_ZONES = [
+  {lo: -Infinity, hi: -30, name: "High risk", icon: "▲", color: "var(--critical)", wash: "var(--critical-wash)", text: "Recent load is far above your 42-day average. Usual during a quick ramp-up, so read it alongside HRV, sleep and how you feel."},
+  {lo: -30, hi: -10, name: "Optimal", icon: "●", color: "var(--good)", wash: "var(--good-wash)", text: "Productive training stress: fatigue moderately above fitness."},
+  {lo: -10, hi: 5, name: "Grey zone", icon: "◆", color: "var(--muted)", text: "Maintaining. Not enough stress to build much, not rested enough to race."},
+  {lo: 5, hi: 20, name: "Fresh", icon: "◇", color: "var(--muted)", text: "Rested and ready to perform."},
+  {lo: 20, hi: Infinity, name: "Transition", icon: "▽", color: "var(--muted)", text: "Well rested, but fitness is starting to fade."},
+];
+const zoneOf = v => FORM_ZONES.find(z => v >= z.lo && v < z.hi) || FORM_ZONES[2];
+
+function dayValues(from, to, key) { const D = S.data; return dayRange(from, to).map(d => { const r = D.days.get(d); return r && r[key] != null ? r[key] : null; }); }
+function rolling(values, win, minN = 1) {
+  return values.map((_, i) => {
+    let t = 0, n = 0;
+    for (let j = Math.max(0, i - win + 1); j <= i; j++) if (values[j] != null) { t += values[j]; n++; }
+    return n >= minN ? t / n : null;
+  });
+}
+function latest(key, within = 45) {
+  const D = S.data;
+  for (let d = D.today; d >= D.today - within; d--) { const r = D.days.get(d); if (r && r[key] != null) return {day: d, value: r[key]}; }
+  return null;
+}
+function meanOf(key, from, to) {
+  const v = dayValues(from, to, key).filter(x => x != null);
+  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+}
+
+/* ---------------------------------------------------------------- tooltip */
+const tip = document.getElementById("tip");
+function showTip(title, rows, x, y) {
+  tip.replaceChildren(h("div", {class: "t"}, title), ...rows.map(r =>
+    h("div", {class: "r"}, r.color ? h("span", {class: "key-line", style: `background:${r.color}`}) : null, h("b", null, r.value), h("span", null, r.name))));
+  tip.style.display = "block";
+  const w = tip.offsetWidth, ht = tip.offsetHeight;
+  tip.style.left = Math.max(6, x + 14 + w > innerWidth ? x - w - 14 : x + 14) + "px";
+  tip.style.top = Math.max(6, Math.min(innerHeight - ht - 6, y - ht / 2)) + "px";
+}
+const hideTip = () => { tip.style.display = "none"; };
+addEventListener("scroll", hideTip, {passive: true});
+
+/* ---------------------------------------------------------------- axes */
+function niceTicks(lo, hi, count = 4) {
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const raw = (hi - lo) / count, mag = 10 ** Math.floor(Math.log10(raw)), norm = raw / mag;
+  const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+  const ticks = [];
+  for (let v = Math.floor(lo / step) * step; v <= Math.ceil(hi / step) * step + step / 2; v += step) ticks.push(+v.toFixed(6));
+  return ticks;
+}
+function dateTicks(from, to, width) {
+  const span = to - from, out = [];
+  const maxTicks = Math.max(2, Math.floor(width / 62));
+  if (span <= 120) {
+    let step = 7; while (span / step > maxTicks) step += 7;
+    for (let d = monday(from) + 7; d <= to; d += step) out.push({v: d, label: dayShort.format(toDate(d))});
+    return out;
+  }
+  let months = 1; while (span / (30.4 * months) > maxTicks) months = months < 3 ? months + 1 : months < 6 ? 6 : 12;
+  let d = monthStart(from);
+  while (d <= to) {
+    const t = iso(d), m = +t.slice(5, 7) - 1;
+    if (d >= from && m % months === 0) out.push({v: d, label: m === 0 ? t.slice(0, 4) : monFmt.format(toDate(d))});
+    d = dn(iso(d + 32).slice(0, 7) + "-01");
+  }
+  return out;
+}
+
+/* Keyboard twin of the pointer: arrow keys walk the same positions. */
+function bindHover(svg, count, atPointer, show, hide) {
+  let cur = -1;
+  svg.setAttribute("tabindex", "0");
+  svg.addEventListener("pointermove", e => { const i = atPointer(e); if (i != null) { cur = i; show(i, e.clientX, e.clientY); } });
+  svg.addEventListener("pointerleave", () => { cur = -1; hide(); });
+  svg.addEventListener("blur", hide);
+  svg.addEventListener("keydown", e => {
+    const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    if (!step) { if (e.key === "Escape") hide(); return; }
+    e.preventDefault();
+    cur = cur < 0 ? (step > 0 ? 0 : count - 1) : Math.max(0, Math.min(count - 1, cur + step));
+    const box = svg.getBoundingClientRect();
+    show(cur, box.left + box.width / 2, box.top + 40);
+  });
+}
+
+/* ---------------------------------------------------------------- line chart
+   o: x (numbers), series [{name,color,values,thin,muted,dots,span,label,fmt}], area {lo,hi,name,color},
+      bands [{lo,hi,label,wash}], hlines [{y,label}], yFmt, zero, yMin, yMax, invert, log, xTicks, xTitle, h, group, clampPct */
+function lineChart(el, W, o) {
+  const H = o.h || 210, labelled = o.series.filter(x => x.label);
+  const m = {l: o.ml || 40, r: o.bands ? 74 : labelled.length ? 44 : 12, t: 10, b: 22};
+  const xs = o.x, n = xs.length;
+  const tx = v => o.log ? Math.log(v) : v;
+  const x0 = tx(xs[0]), x1 = tx(xs[n - 1]);
+  const X = v => m.l + (n > 1 ? (tx(v) - x0) / ((x1 - x0) || 1) : .5) * (W - m.l - m.r);
+  let vals = o.series.flatMap(x => x.values).filter(v => v != null);
+  if (o.area) vals = vals.concat(o.area.lo, o.area.hi).filter(v => v != null);
+  if (o.clampPct) { const sorted = vals.slice().sort((a, b) => a - b); vals = [sorted[Math.floor(sorted.length * o.clampPct)], sorted[Math.floor(sorted.length * (1 - o.clampPct))]]; }
+  if (!vals.length) { el.replaceChildren(h("div", {class: "empty"}, "No data in this range")); return; }
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  (o.hlines || []).forEach(l => { lo = Math.min(lo, l.y); hi = Math.max(hi, l.y); });
+  if (o.zero) lo = Math.min(lo, 0);
+  if (o.yMin != null) lo = Math.min(lo, o.yMin);
+  if (o.yMax != null) hi = Math.max(hi, o.yMax);
+  const pad = o.noPad ? 0 : (hi - lo || 1) * .06;
+  const ticks = niceTicks(o.zero ? lo : lo - pad, hi + pad, o.tickCount || 4);
+  const y0 = ticks[0], y1 = ticks[ticks.length - 1];
+  const Y = v => { const f = (Math.max(y0, Math.min(y1, v)) - y0) / (y1 - y0); return o.invert ? m.t + f * (H - m.t - m.b) : H - m.b - f * (H - m.t - m.b); };
+  const yFmt = o.yFmt || axisNum;
+
+  const svg = s("svg", {width: W, height: H, role: "img", "aria-label": o.aria || ""});
+  for (const b of o.bands || []) {
+    const top = Math.max(y0, Math.min(y1, b.hi)), bot = Math.max(y0, Math.min(y1, b.lo));
+    if (top <= bot) continue;
+    if (b.wash) svg.append(s("rect", {x: m.l, y: Y(top), width: W - m.l - m.r, height: Y(bot) - Y(top), fill: b.wash}));
+    if (Y(bot) - Y(top) > 13) svg.append(s("text", {x: W - m.r + 7, y: (Y(bot) + Y(top)) / 2 + 4}, b.label));
+  }
+  for (const t of ticks) {
+    svg.append(s("line", {x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), stroke: t === 0 ? "var(--axis)" : "var(--grid)"}));
+    svg.append(s("text", {x: m.l - 6, y: Y(t) + 4, "text-anchor": "end"}, yFmt(t)));
+  }
+  const xTicks = o.xTicks || dateTicks(xs[0], xs[n - 1], W - m.l - m.r);
+  for (const t of xTicks) svg.append(s("text", {x: X(t.v), y: H - 6, "text-anchor": "middle"}, t.label));
+
+  if (o.area) {
+    let up = [], down = [];
+    const flush = () => { if (up.length) svg.append(s("polygon", {points: up.concat(down).join(" "), fill: o.area.color || "var(--accent)", opacity: .12})); up = []; down = []; };
+    xs.forEach((v, i) => {
+      if (o.area.lo[i] == null || o.area.hi[i] == null) { flush(); return; }
+      up.push(`${X(v)},${Y(o.area.hi[i])}`); down.unshift(`${X(v)},${Y(o.area.lo[i])}`);
+    });
+    flush();
+  }
+  for (const l of o.hlines || []) {
+    svg.append(s("line", {x1: m.l, x2: W - m.r, y1: Y(l.y), y2: Y(l.y), stroke: "var(--axis)"}));
+    svg.append(s("text", {x: W - m.r - 4, y: Y(l.y) - 4, "text-anchor": "end"}, l.label));
+  }
+  for (const sr of o.series) {
+    if (sr.dots) {
+      xs.forEach((v, i) => { if (sr.values[i] != null) svg.append(s("circle", {cx: X(v), cy: Y(sr.values[i]), r: 3.5, fill: sr.color, stroke: "var(--surface)", "stroke-width": 1})); });
+      continue;
+    }
+    let d = "", pen = false, lastI = -1;
+    xs.forEach((v, i) => {
+      const val = sr.values[i];
+      if (val == null) { if (!sr.span) pen = false; return; }
+      d += `${pen ? "L" : "M"}${X(v).toFixed(1)} ${Y(val).toFixed(1)}`;
+      if (!pen && (sr.values[i + 1] == null) && !sr.span) svg.append(s("circle", {cx: X(v), cy: Y(val), r: 1.5, fill: sr.color}));
+      pen = true; lastI = i;
+    });
+    svg.append(s("path", {d, fill: "none", stroke: sr.color, "stroke-width": sr.thin ? 1 : 2, "stroke-linejoin": "round", "stroke-linecap": "round", opacity: sr.muted ? .8 : 1}));
+    if (lastI >= 0 && !sr.thin) svg.append(s("circle", {cx: X(xs[lastI]), cy: Y(sr.values[lastI]), r: 4, fill: sr.color, stroke: "var(--surface)", "stroke-width": 2}));
+  }
+  const placed = [];
+  for (const sr of labelled) {
+    let i = n - 1; while (i >= 0 && sr.values[i] == null) i--;
+    if (i < 0) continue;
+    const yy = Y(sr.values[i]);
+    if (placed.some(p => Math.abs(p - yy) < 13)) continue; // the legend and tooltip carry it instead
+    placed.push(yy);
+    svg.append(s("text", {class: "end", x: X(xs[i]) + 8, y: yy + 4}, (sr.fmt || yFmt)(sr.values[i])));
+  }
+
+  const cross = s("line", {y1: m.t, y2: H - m.b, stroke: "var(--axis)", visibility: "hidden"});
+  const marks = o.series.filter(x => !x.thin && !x.dots).map(sr => ({sr, c: s("circle", {r: 4, fill: sr.color, stroke: "var(--surface)", "stroke-width": 2, visibility: "hidden"})}));
+  svg.append(cross, ...marks.map(x => x.c));
+  const hasData = i => o.series.some(sr => sr.values[i] != null);
+  function nearest(px) {
+    let best = -1, dist = Infinity;
+    xs.forEach((v, i) => { const d = Math.abs(X(v) - px); if (d < dist && hasData(i)) { dist = d; best = i; } });
+    return best < 0 ? null : best;
+  }
+  const paint = i => {
+    if (i == null) { cross.setAttribute("visibility", "hidden"); marks.forEach(x => x.c.setAttribute("visibility", "hidden")); return; }
+    cross.setAttribute("x1", X(xs[i])); cross.setAttribute("x2", X(xs[i])); cross.setAttribute("visibility", "visible");
+    marks.forEach(({sr, c}) => {
+      const v = sr.values[i];
+      if (v == null) { c.setAttribute("visibility", "hidden"); return; }
+      c.setAttribute("cx", X(xs[i])); c.setAttribute("cy", Y(v)); c.setAttribute("visibility", "visible");
+    });
+  };
+  if (o.group) o.group.push(paint);
+  const broadcast = i => { (o.group || [paint]).forEach(f => f(i)); };
+  bindHover(svg, n, e => nearest(e.clientX - svg.getBoundingClientRect().left), (i, cx, cy) => {
+    broadcast(i);
+    const rows = o.series.filter(sr => sr.values[i] != null).map(sr => ({value: (sr.tipFmt || sr.fmt || yFmt)(sr.values[i]), name: sr.name, color: sr.color}));
+    if (o.area && o.area.lo[i] != null) rows.push({value: `${yFmt(o.area.lo[i])}–${yFmt(o.area.hi[i])}`, name: o.area.name});
+    if (o.tipExtra) rows.push(...o.tipExtra(i));
+    showTip(o.xTitle ? o.xTitle(xs[i], i) : fmtDayW(xs[i]), rows, cx, cy);
+  }, () => { broadcast(null); hideTip(); });
+  el.replaceChildren(svg);
+}
+
+/* ---------------------------------------------------------------- stacked columns
+   o: x (numbers: band starts), series [{name,color,values}], bandTitle(x), yFmt, tipFmt, h, unit */
+function stackChart(el, W, o) {
+  const H = o.h || 210, m = {l: 40, r: 10, t: 10, b: 22}, n = o.x.length;
+  const totals = o.x.map((_, i) => o.series.reduce((t, sr) => t + (sr.values[i] || 0), 0));
+  const maxV = Math.max(...totals, 0);
+  if (!maxV) { el.replaceChildren(h("div", {class: "empty"}, "No data in this range")); return; }
+  const ticks = niceTicks(0, maxV, 4), top = ticks[ticks.length - 1];
+  const Y = v => H - m.b - (v / top) * (H - m.t - m.b);
+  const band = (W - m.l - m.r) / n, bw = Math.max(1.5, Math.min(24, band * .78));
+  const cx = i => m.l + band * (i + .5);
+  const svg = s("svg", {width: W, height: H, role: "img", "aria-label": o.aria || ""});
+  const yFmt = o.yFmt || axisNum, tipFmt = o.tipFmt || yFmt;
+  for (const t of ticks) {
+    svg.append(s("line", {x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), stroke: t === 0 ? "var(--axis)" : "var(--grid)"}));
+    svg.append(s("text", {x: m.l - 6, y: Y(t) + 4, "text-anchor": "end"}, yFmt(t)));
+  }
+  const hl = s("rect", {y: m.t, height: H - m.t - m.b, width: band, fill: "var(--wash)", visibility: "hidden", rx: 3});
+  svg.append(hl);
+  o.x.forEach((_, i) => {
+    let acc = 0;
+    const live = o.series.filter(sr => sr.values[i] > 0);
+    live.forEach((sr, j) => {
+      const yTop = Y(acc + sr.values[i]), yBot = Y(acc), isTop = j === live.length - 1;
+      acc += sr.values[i];
+      const ht = Math.max(.5, yBot - yTop - (j > 0 ? 2 : 0)), x = cx(i) - bw / 2, r = isTop ? Math.min(4, bw / 2, ht) : 0;
+      svg.append(s("path", {fill: sr.color, d: `M${x} ${yTop + ht}V${yTop + r}Q${x} ${yTop} ${x + r} ${yTop}H${x + bw - r}Q${x + bw} ${yTop} ${x + bw} ${yTop + r}V${yTop + ht}Z`}));
+    });
+  });
+  const ticksX = (o.xTicks || dateTicks(o.x[0], o.x[n - 1], W - m.l - m.r));
+  const firstV = o.x[0], lastV = o.x[n - 1] === firstV ? firstV + 1 : o.x[n - 1];
+  for (const t of ticksX) {
+    const pos = o.x.findIndex(v => v >= t.v);
+    if (pos < 0 || t.v > lastV) continue;
+    svg.append(s("text", {x: cx(pos), y: H - 6, "text-anchor": "middle"}, t.label));
+  }
+  bindHover(svg, n, e => {
+    const i = Math.floor((e.clientX - svg.getBoundingClientRect().left - m.l) / band);
+    return i >= 0 && i < n ? i : null;
+  }, (i, x, y) => {
+    hl.setAttribute("x", m.l + band * i); hl.setAttribute("visibility", "visible");
+    const rows = o.series.slice().reverse().filter(sr => sr.values[i] > 0).map(sr => ({value: tipFmt(sr.values[i]), name: sr.name, color: sr.color}));
+    if (rows.length > 1 && !o.noTotal) rows.push({value: tipFmt(totals[i]), name: "Total"});
+    if (!rows.length) rows.push({value: tipFmt(0), name: ""});
+    showTip(o.bandTitle(o.x[i]), rows, x, y);
+  }, () => { hl.setAttribute("visibility", "hidden"); hideTip(); });
+  el.replaceChildren(svg);
+}
+
+/* ---------------------------------------------------------------- page pieces */
+const pending = [];   // charts to draw once their container has a width
+function card(opts) {
+  const plot = h("div", {class: "plot"});
+  let tableShown = false;
+  const body = h("div", null, plot);
+  const draw = () => { if (!tableShown && opts.draw && plot.clientWidth) opts.draw(plot, plot.clientWidth); };
+  const toggle = opts.table && h("button", {class: "btn", type: "button", onclick: () => {
+    tableShown = !tableShown;
+    toggle.textContent = tableShown ? "Chart" : "Table";
+    if (tableShown) { const t = opts.table(); body.replaceChildren(h("div", {class: "wrap"}, dataTable(t.cols, t.rows))); }
+    else { body.replaceChildren(plot); draw(); }
+  }}, "Table");
+  const el = h("section", {class: "card"},
+    h("div", {class: "card-head"}, h("div", null, h("h2", null, opts.title), opts.sub && h("p", null, opts.sub)), toggle),
+    opts.legend && opts.legend.length > 1 ? legend(opts.legend) : null,
+    body);
+  if (opts.draw) pending.push({plot, draw});
+  return el;
+}
+function legend(items) {
+  return h("div", {class: "legend"}, items.map(i => h("span", null,
+    h("i", {class: i.rect ? "key-rect" : "key-line", style: `background:${i.color}`}), i.name)));
+}
+function dataTable(cols, rows) {
+  return h("table", null,
+    h("thead", null, h("tr", null, cols.map(c => h("th", {class: c.n ? "n" : null}, c.name || c)))),
+    h("tbody", null, rows.map(r => h("tr", null, r.map((v, i) => h("td", {class: cols[i].n ? "n" : null}, v == null ? "–" : String(v)))))));
+}
+function spark(values) {
+  const v = values.filter(x => x != null);
+  if (v.length < 2) return null;
+  const lo = Math.min(...v), hi = Math.max(...v), W = 120, H = 26;
+  const X = i => 1 + i / (values.length - 1) * (W - 6), Y = y => hi === lo ? H / 2 : H - 4 - (y - lo) / (hi - lo) * (H - 8);
+  let d = "", pen = false, last = null;
+  values.forEach((y, i) => { if (y == null) { return; } d += `${pen ? "L" : "M"}${X(i).toFixed(1)} ${Y(y).toFixed(1)}`; pen = true; last = i; });
+  return s("svg", {viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", "aria-hidden": "true"},
+    s("path", {d, fill: "none", stroke: "var(--mark-muted)", "stroke-width": 1.5, "vector-effect": "non-scaling-stroke"}),
+    s("circle", {cx: X(last), cy: Y(values[last]), r: 2.5, fill: "var(--accent)"}));
+}
+/* delta: {text, tone: "good" | "bad" | null} */
+function tile(label, value, unit, delta, sparkValues) {
+  return h("div", {class: "tile"},
+    h("div", {class: "label"}, label),
+    h("div", {class: "value"}, value, unit ? h("small", null, unit) : null),
+    delta ? h("div", {class: "delta " + (delta.tone === "good" ? "up-good" : delta.tone === "bad" ? "up-bad" : "")}, delta.text) : null,
+    sparkValues ? spark(sparkValues) : null);
+}
+function deltaTone(change, upIsGood, threshold = 0) {
+  if (Math.abs(change) <= threshold) return null;
+  return (change > 0) === upIsGood ? "good" : "bad";
+}
+const arrow = v => v > 0 ? "▲ " : v < 0 ? "▼ " : "";
+const seriesKey = (x, name, rect) => ({name, color: x, rect});
+
+/* Buckets used by every "over time" column chart, so they agree. */
+function buckets() {
+  const start = rangeStart(), to = S.data.today, months = useMonths(), out = [];
+  if (months) { let d = start; while (d <= to) { out.push(d); d = dn(iso(d + 32).slice(0, 7) + "-01"); } }
+  else for (let d = monday(start); d <= to; d += 7) out.push(d);
+  return out;
+}
+const bucketOf = (d, list) => { let i = list.length - 1; while (i > 0 && list[i] > d) i--; return i; };
+function bucketTitle(d) {
+  if (useMonths()) return monYearFmt.format(toDate(d));
+  return `Week of ${fmtDay(d)}`;
+}
+const bucketWord = () => useMonths() ? "month" : "week";
+function bucketSeries(acts, valueOf, sports = SPORT_KEYS) {
+  const list = buckets();
+  return {x: list, series: sports.filter(k => S.sport === "all" || S.sport === k).map(k => {
+    const values = list.map(() => 0);
+    for (const a of acts) if (a.sport === k) values[bucketOf(a.day, list)] += valueOf(a) || 0;
+    return {name: SPORTS[k].label, color: SPORTS[k].color, values};
+  })};
+}
+function tableFromBuckets(b, fmt) {
+  return () => ({
+    cols: [bucketWord() === "month" ? "Month" : "Week of", ...b.series.map(x => ({name: x.name, n: 1}))],
+    rows: b.x.map((d, i) => [useMonths() ? monYearFmt.format(toDate(d)) : fmtDay(d), ...b.series.map(x => fmt(x.values[i]))]).reverse(),
+  });
+}
+function filters(opts = {}) {
+  const seg = (items, cur, set) => h("div", {class: "seg", role: "group"}, items.map(([k, label, color]) =>
+    h("button", {type: "button", "aria-pressed": String(k === cur), onclick: () => set(k)}, color ? h("span", {class: "dot", style: `background:${color}`}) : null, label)));
+  return h("div", {class: "filters"},
+    seg(Object.keys(RANGES).map(k => [k, k]), S.range, k => { S.range = k; localStorage.setItem("range", k); render(); }),
+    opts.sport === false ? null : seg([["all", "All"], ...SPORT_KEYS.map(k => [k, SPORTS[k].label, SPORTS[k].color])], S.sport, k => { S.sport = k; render(); }),
+    opts.search ? h("input", {class: "search", type: "search", placeholder: "Search name or type", value: S.search, "aria-label": "Search activities",
+      oninput: e => { S.search = e.target.value; S.shown = 100; const sel = e.target.selectionStart; render(); const n = document.querySelector(".search"); n.focus(); n.setSelectionRange(sel, sel); }}) : null);
+}
+
+/* ---------------------------------------------------------------- Fitness tab */
+function viewFitness(main) {
+  const D = S.data, f = fitnessSeries(S.sport), last = f.days.length - 1;
+  const ctl = f.ctl[last], atl = f.atl[last], form = f.form[last], zone = zoneOf(form ?? 0);
+  const ramp = ctl - f.ctl[Math.max(0, last - 7)];
+  const thisWeek = monday(D.today);
+  const acts = D.acts.filter(inSport);
+  const wkLoad = sumOf(acts.filter(a => a.day >= thisWeek), a => a.load);
+  const prevLoad = sumOf(acts.filter(a => a.day >= thisWeek - 7 && a.day < thisWeek), a => a.load);
+  const scope = S.sport === "all" ? "" : ` (${SPORTS[S.sport].label.toLowerCase()} only)`;
+  const gl = D.profile.garminLoad;
+  const nice = v => { const w = String(v || "unknown").replace(/_/g, " ").toLowerCase(); return w[0].toUpperCase() + w.slice(1); };
+  main.append(filters());
+  main.append(h("div", {class: "hero"},
+    h("div", {class: "figure"}, form == null ? "–" : signed(form, int) + "%"),
+    h("div", null,
+      h("div", {class: "state"}, h("span", {style: `color:${zone.color}`, "aria-hidden": "true"}, zone.icon), `Form: ${zone.name}${scope}`),
+      h("p", null, zone.text)),
+    S.sport === "all" && gl && gl.ratio != null ? h("div", {class: "second"},
+      h("div", {style: "color:var(--ink2);font-size:12.5px"}, "Garmin's view"),
+      h("b", null, `Load ratio ${one(gl.ratio)}: ${nice(gl.ratioStatus)}`),
+      h("p", {style: "margin:2px 0 0;font-size:12.5px"}, `Training status: ${nice(String(gl.status || "").replace(/_\d+$/, ""))}. Garmin compares this week with about the last 4 weeks, so it adapts to a ramp-up sooner than the 42-day form figure.`)) : null));
+
+  const start = rangeStart(), to = D.today, days = dayRange(start, to);
+  const ix = d => f.index(d) >= 0 ? f.index(d) : null;
+  const pick = arr => days.map(d => ix(d) == null ? null : arr[ix(d)]);
+  const ctlV = pick(f.ctl), atlV = pick(f.atl), formV = pick(f.form);
+  const wks = dayRange(to - 83, to).map(d => ix(d) == null ? null : f.ctl[ix(d)]);
+  const atlSpark = dayRange(to - 83, to).map(d => ix(d) == null ? null : f.atl[ix(d)]);
+  const hrv = latest("hrv"), hrv60 = meanOf("hrv", to - 60, to), rhr = latest("rhr"), rhr60 = meanOf("rhr", to - 60, to), score = latest("sleepScore"), bb = latest("bbMax");
+  const when = x => x && x.day < D.today - 1 ? ` · ${dayShort.format(toDate(x.day))}` : "";
+  main.append(h("div", {class: "tiles"},
+    tile("Fitness (42-day load)", int(ctl), null, {text: `${arrow(ramp)}${signed(ramp)} in 7 days`, tone: deltaTone(ramp, true, .5)}, wks),
+    tile("Fatigue (7-day load)", int(atl), null, {text: `Last 12 weeks`}, atlSpark),
+    tile("Load this week", int(wkLoad), null, {text: `Last week: ${int(prevLoad)}`}),
+    hrv && tile("HRV last night", int(hrv.value), "ms", {text: `60-day avg ${int(hrv60)}${when(hrv)}`, tone: null}, dayValues(to - 27, to, "hrv")),
+    rhr && tile("Resting HR", int(rhr.value), "bpm", {text: `60-day avg ${int(rhr60)}${when(rhr)}`, tone: null}, dayValues(to - 27, to, "rhr")),
+    score && tile("Sleep score", int(score.value), null, {text: `Last night${when(score)}`}, dayValues(to - 27, to, "sleepScore")),
+    bb && tile("Body Battery high", int(bb.value), null, {text: `Today's peak${when(bb)}`}, dayValues(to - 27, to, "bbMax"))));
+
+  const metricsTable = () => ({cols: ["Date", {name: "Fitness", n: 1}, {name: "Fatigue", n: 1}, {name: "Form %", n: 1}],
+    rows: days.map((d, i) => [fmtDay(d), one(ctlV[i]), one(atlV[i]), int(formV[i])]).reverse()});
+  main.append(h("div", {class: "section"}, card({
+    title: "Fitness and fatigue", sub: "Your Garmin training load, averaged over 42 days (fitness) and 7 days (fatigue)",
+    legend: [seriesKey("var(--accent)", "Fitness"), seriesKey("var(--fatigue)", "Fatigue")], table: metricsTable,
+    draw: (el, W) => lineChart(el, W, {x: days, h: 250, zero: true, aria: "Fitness and fatigue over time",
+      series: [{name: "Fatigue", color: "var(--fatigue)", values: atlV, label: true, fmt: int}, {name: "Fitness", color: "var(--accent)", values: ctlV, label: true, fmt: int}]}),
+  })));
+  main.append(h("div", {class: "section"}, card({
+    title: "Form", sub: "(Fitness − fatigue) ÷ fitness. Negative means you're carrying fatigue", table: metricsTable,
+    draw: (el, W) => {
+      const vs = formV.filter(v => v != null);
+      lineChart(el, W, {x: days, h: 190, aria: "Form over time", yFmt: v => int(v) + "%", yMin: Math.max(-90, Math.min(-40, ...vs)), yMax: Math.min(70, Math.max(30, ...vs)),
+        bands: FORM_ZONES.map(z => ({lo: Math.max(z.lo, -200), hi: Math.min(z.hi, 200), label: z.name, wash: z.wash})),
+        series: [{name: "Form", color: "var(--ink)", values: formV, tipFmt: v => signed(v, int) + "%"}],
+        tipExtra: i => formV[i] == null ? [] : [{value: zoneOf(formV[i]).name, name: ""}]});
+    },
+  })));
+  const b = bucketSeries(rangeActs(), a => a.load);
+  main.append(h("div", {class: "section"}, card({
+    title: `Training load per ${bucketWord()}`, sub: "Stacked by sport",
+    legend: b.series.map(x => seriesKey(x.color, x.name, true)), table: tableFromBuckets(b, int),
+    draw: (el, W) => stackChart(el, W, {...b, h: 220, aria: "Training load over time, by sport", bandTitle: bucketTitle, tipFmt: int}),
+  })));
+  main.append(h("p", {class: "note"}, "Load is Garmin's per-activity training load (EPOC based), the only load figure present on every sport. It is not TSS, so absolute fitness numbers won't match intervals.icu or Strava. The trend and form percentage are what carry over. Zone names and cut-offs are modelled on intervals.icu, which is built around TSS; Garmin's load is spikier, so treat the zones as a guide rather than a verdict."));
+}
+
+/* ---------------------------------------------------------------- Training tab */
+const ZONES5 = [1, 2, 3, 4, 5].map(z => ({name: `Z${z}`, color: `var(--z${z})`, key: `hrTimeInZone_${z}`}));
+const ZONES7 = [1, 2, 3, 4, 5, 6, 7].map(z => ({name: `Z${z}`, color: `var(--z${z})`, key: `powerTimeInZone_${z}`}));
+
+function segmented(parts) {
+  const total = parts.reduce((t, p) => t + p.value, 0);
+  if (!total) return h("div", {class: "empty"}, "No zone data in this range");
+  return h("div", null,
+    h("div", {class: "segbar", role: "img", "aria-label": parts.map(p => `${p.name} ${int(p.value / total * 100)}%`).join(", ")},
+      parts.filter(p => p.value > 0).map(p => {
+        const pct = p.value / total * 100;
+        return h("div", {style: `flex:${p.value} 1 0;background:${p.color};color:${p.ink}`,
+          tabindex: 0,
+          onpointermove: e => showTip(p.name, [{value: `${int(pct)}%`, name: hours(p.value)}], e.clientX, e.clientY),
+          onfocus: e => { const r = e.target.getBoundingClientRect(); showTip(p.name, [{value: `${int(pct)}%`, name: hours(p.value)}], r.left, r.top); },
+          onpointerleave: hideTip, onblur: hideTip}, pct >= 7 ? `${int(pct)}%` : "");
+      })),
+    legend(parts.map(p => seriesKey(p.color, p.name, true))));
+}
+function viewTraining(main) {
+  const acts = rangeActs(), prev = previousActs(), D = S.data;
+  main.append(filters());
+  const chg = (cur, old) => { if (!old) return {text: "No earlier data"}; const p = (cur - old) / old * 100; return {text: `${arrow(p)}${signed(p, int)}% vs previous period`, tone: null}; };
+  const tot = (list, f) => sumOf(list, f);
+  const tiles = [
+    tile("Training time", one(tot(acts, a => a.moving) / 3600), "h", chg(tot(acts, a => a.moving), tot(prev, a => a.moving))),
+    tile("Activities", int(acts.length), null, chg(acts.length, prev.length)),
+    tile("Training load", int(tot(acts, a => a.load)), null, chg(tot(acts, a => a.load), tot(prev, a => a.load))),
+  ];
+  for (const k of ["run", "bike", "swim"]) {
+    if (S.sport !== "all" && S.sport !== k) continue;
+    const list = acts.filter(a => a.sport === k), old = prev.filter(a => a.sport === k);
+    tiles.push(tile(`${SPORTS[k].label} distance`, k === "swim" ? one(tot(list, a => a.dist) / 1000) : int(tot(list, a => a.dist) / 1000), "km", chg(tot(list, a => a.dist), tot(old, a => a.dist))));
+  }
+  if (S.sport !== "swim") tiles.push(tile("Elevation gain", int(tot(acts, a => a.elev)), "m", chg(tot(acts, a => a.elev), tot(prev, a => a.elev))));
+  main.append(h("div", {class: "tiles"}, tiles));
+
+  const time = bucketSeries(acts, a => a.moving / 3600);
+  main.append(h("div", {class: "section"}, card({
+    title: `Training time per ${bucketWord()}`, sub: "Hours of moving time, by sport",
+    legend: time.series.map(x => seriesKey(x.color, x.name, true)), table: tableFromBuckets(time, one),
+    draw: (el, W) => stackChart(el, W, {...time, h: 220, aria: "Training hours over time, by sport", bandTitle: bucketTitle, tipFmt: v => one(v) + " h"}),
+  })));
+
+  const zones = buckets().map(() => ZONES5.map(() => 0)), list = buckets();
+  for (const a of acts) ZONES5.forEach((z, i) => { zones[bucketOf(a.day, list)][i] += (a.raw[z.key] || 0) / 3600; });
+  const zoneSeries = ZONES5.map((z, i) => ({name: z.name, color: z.color, values: zones.map(w => w[i])}));
+  const zb = {x: list, series: zoneSeries};
+  const zoneTotals = ZONES5.map((z, i) => ({name: z.name, color: z.color, value: sumOf(acts, a => a.raw[z.key]), ink: `var(--zi${i + 1})`}));
+  const dist = h("div", {class: "grid g2 section"},
+    card({title: "Time in heart-rate zones", sub: `Hours per ${bucketWord()}, from Z1 up to Z5`,
+      legend: zoneSeries.map(x => seriesKey(x.color, x.name, true)), table: tableFromBuckets(zb, one),
+      draw: (el, W) => stackChart(el, W, {...zb, aria: "Time in heart-rate zones over time", bandTitle: bucketTitle, tipFmt: v => one(v) + " h"})}),
+    h("div", {class: "grid"},
+      card({title: "Heart-rate zone split", sub: "Share of zoned time in this range", draw: el => el.replaceChildren(segmented(zoneTotals))}),
+      S.sport === "all" || S.sport === "bike" ? card({title: "Power zone split", sub: "Rides with power, Z1 to Z7", draw: el => el.replaceChildren(segmented(ZONES7.map((z, i) => ({
+        name: z.name, color: z.color, value: sumOf(acts.filter(a => a.sport === "bike"), a => a.raw[z.key]), ink: `var(--zi${i + 1})`}))))}) : null));
+  main.append(dist);
+
+  const shown = ["run", "bike", "swim"].filter(k => S.sport === "all" || S.sport === k);
+  if (shown.length) main.append(h("div", {class: "grid g3 section"}, shown.map(k => {
+    const b = bucketSeries(acts, a => a.dist / 1000, [k]);
+    const sb = {x: b.x, series: b.series.filter(x => x.name === SPORTS[k].label)};
+    if (!sb.series.length) return null;
+    return card({title: `${SPORTS[k].label} distance per ${bucketWord()}`, sub: "Kilometres", table: tableFromBuckets(sb, one),
+      draw: (el, W) => stackChart(el, W, {...sb, h: 170, aria: `${SPORTS[k].label} distance over time`, bandTitle: bucketTitle, tipFmt: v => one(v) + " km"})});
+  })));
+
+  // Year over year ignores the date range on purpose: it always compares whole years.
+  const single = S.sport !== "all" && S.sport !== "other";
+  const yearNow = +iso(D.today).slice(0, 4), yearRows = [];
+  for (const y of [yearNow - 2, yearNow - 1, yearNow]) {
+    const first = dn(`${y}-01-01`), len = dn(`${y + 1}-01-01`) - first, sums = new Array(366).fill(0);
+    for (const a of D.acts) if (inSport(a) && a.day >= first && a.day < first + len) sums[a.day - first] += single ? a.dist / 1000 : a.moving / 3600;
+    let t = 0;
+    yearRows.push({y, values: sums.map((v, i) => { t += v; return i < len && (y !== yearNow || first + i <= D.today) ? t : null; })});
+  }
+  const unit = single ? "km" : "h", yearColor = S.sport === "all" ? "var(--accent)" : SPORTS[S.sport].color;
+  const yearStyle = [{color: "var(--mark-muted)", thin: 0}, {color: "var(--muted)"}, {color: yearColor}];
+  main.append(h("div", {class: "section"}, card({
+    title: `Year to date: cumulative ${single ? "distance" : "hours"}`, sub: "Always whole calendar years, so the date range above doesn't apply",
+    legend: yearRows.map((r, i) => seriesKey(yearStyle[i].color, String(r.y))),
+    table: () => ({cols: ["Year", {name: `Total ${unit}`, n: 1}], rows: yearRows.map(r => [r.y, int(r.values.filter(v => v != null).pop())]).reverse()}),
+    draw: (el, W) => lineChart(el, W, {x: dayRange(0, 365), h: 240, zero: true, aria: "Cumulative training by year",
+      xTicks: [0, 59, 120, 181, 243, 304].map(v => ({v, label: monFmt.format(toDate(v))})),
+      xTitle: v => dayShort.format(toDate(v)), yFmt: v => axisNum(v),
+      series: yearRows.map((r, i) => ({name: String(r.y), color: yearStyle[i].color, values: r.values, label: true, fmt: v => int(v), tipFmt: v => `${int(v)} ${unit}`}))}),
+  })));
+}
+
+/* ---------------------------------------------------------------- Recovery tab */
+function viewRecovery(main) {
+  const D = S.data, start = rangeStart(), to = D.today, days = dayRange(Math.max(start, to - 3650), to);
+  main.append(filters({sport: false}));
+  const row = key => dayValues(days[0], to, key);
+  const hrv = row("hrv"), hrv7 = rolling(hrv, 7, 3), rhr = row("rhr"), rhr7 = rolling(rhr, 7, 3);
+  const score = row("sleepScore"), score7 = rolling(score, 7, 3), stress = row("stress"), stress7 = rolling(stress, 7, 3);
+  const hrvLo = [], hrvHi = [];
+  for (const d of days) { // normal range: mean +/- 1 SD of the 60 nights before this one
+    const v = dayValues(d - 60, d - 1, "hrv").filter(x => x != null);
+    if (v.length < 14) { hrvLo.push(null); hrvHi.push(null); continue; }
+    const mean = v.reduce((a, b) => a + b, 0) / v.length, sd = Math.sqrt(v.reduce((a, b) => a + (b - mean) ** 2, 0) / v.length);
+    hrvLo.push(mean - sd); hrvHi.push(mean + sd);
+  }
+  const lastOf = a => { for (let i = a.length - 1; i >= 0; i--) if (a[i] != null) return a[i]; return null; };
+  const hv = latest("hrv"), rh = latest("rhr"), sl = latest("sleep"), sc = latest("sleepScore"), bb = latest("bbMax"), st = latest("stress");
+  const base = lastOf(hrvLo) != null ? [lastOf(hrvLo), lastOf(hrvHi)] : null;
+  const hrvState = hv && base ? (hv.value < base[0] ? {text: `Below normal range (${int(base[0])}–${int(base[1])})`, tone: "bad"} : hv.value > base[1] ? {text: `Above normal range (${int(base[0])}–${int(base[1])})`} : {text: `Within normal range (${int(base[0])}–${int(base[1])})`, tone: "good"}) : null;
+  const rhrAvg = meanOf("rhr", to - 60, to - 1), slpAvg = meanOf("sleep", to - 28, to);
+  main.append(h("div", {class: "tiles"},
+    hv && tile("HRV last night", int(hv.value), "ms", hrvState, dayValues(to - 27, to, "hrv")),
+    rh && tile("Resting HR", int(rh.value), "bpm", rhrAvg ? {text: `${signed(rh.value - rhrAvg, int)} vs 60-day avg`, tone: deltaTone(rh.value - rhrAvg, false, 2)} : null, dayValues(to - 27, to, "rhr")),
+    sl && tile("Sleep", one(sl.value / 3600), "h", slpAvg ? {text: `28-day avg ${one(slpAvg / 3600)} h`} : null, dayValues(to - 27, to, "sleep")),
+    sc && tile("Sleep score", int(sc.value), null, null, dayValues(to - 27, to, "sleepScore")),
+    bb && tile("Body Battery high", int(bb.value), null, null, dayValues(to - 27, to, "bbMax")),
+    st && tile("Stress", int(st.value), null, null, dayValues(to - 27, to, "stress"))));
+
+  const dayTable = (name, values, fmt = int) => () => ({cols: ["Date", {name, n: 1}], rows: days.map((d, i) => [fmtDay(d), values[i] == null ? null : fmt(values[i])]).filter(r => r[1] != null).reverse()});
+  const avgLegend = name => [seriesKey("var(--mark-muted)", "Nightly / daily"), seriesKey("var(--accent)", name)];
+  const pair = (values, avg, name = "7-day average") => [{name: "Value", color: "var(--mark-muted)", values, thin: true}, {name, color: "var(--accent)", values: avg, label: true, fmt: int}];
+  main.append(h("div", {class: "grid g2 section"},
+    card({title: "Heart-rate variability", sub: "Overnight average, ms. Band: your normal range (±1 SD of the prior 60 nights)",
+      legend: [...avgLegend("7-day average"), seriesKey("rgba(120,110,220,.35)", "Normal range", true)], table: dayTable("HRV (ms)", hrv),
+      draw: (el, W) => lineChart(el, W, {x: days, aria: "HRV over time", series: pair(hrv, hrv7), area: {lo: hrvLo, hi: hrvHi, name: "Normal range"}})}),
+    card({title: "Resting heart rate", sub: "bpm. Lower is generally better; a sudden rise can mean fatigue or illness",
+      legend: avgLegend("7-day average"), table: dayTable("Resting HR (bpm)", rhr),
+      draw: (el, W) => lineChart(el, W, {x: days, aria: "Resting heart rate over time", series: pair(rhr, rhr7)})})));
+
+  // Sleep stages: nightly up to about four months, weekly averages beyond that.
+  const nightly = days.length <= 125;
+  const stages = [["deep", "Deep", "var(--z5)"], ["rem", "REM", "var(--z3)"], ["light", "Light", "var(--z1)"], ["awake", "Awake", "var(--mark-muted)"]];
+  let sleepX, sleepSeries;
+  if (nightly) {
+    sleepX = days;
+    sleepSeries = stages.map(([k, name, color]) => ({name, color, values: row(k).map(v => v == null ? 0 : v / 3600)}));
+  } else {
+    sleepX = []; for (let d = monday(days[0]); d <= to; d += 7) sleepX.push(d);
+    sleepSeries = stages.map(([k, name, color]) => ({name, color, values: sleepX.map(w => { const m = meanOf(k, w, Math.min(w + 6, to)); return m == null ? 0 : m / 3600; })}));
+  }
+  const clockH = v => { const t = Math.round(v * 60); return `${Math.floor(t / 60)}h ${String(t % 60).padStart(2, "0")}m`; };
+  main.append(h("div", {class: "section"}, card({
+    title: nightly ? "Sleep stages per night" : "Sleep stages, weekly average per night", sub: "Hours",
+    legend: sleepSeries.map(x => seriesKey(x.color, x.name, true)),
+    table: () => ({cols: [nightly ? "Night" : "Week of", ...sleepSeries.map(x => ({name: x.name, n: 1}))], rows: sleepX.map((d, i) => [fmtDay(d), ...sleepSeries.map(x => one(x.values[i]))]).reverse()}),
+    draw: (el, W) => stackChart(el, W, {x: sleepX, series: sleepSeries, h: 220, aria: "Sleep stages over time", tipFmt: clockH, bandTitle: d => nightly ? fmtDayW(d) : `Week of ${fmtDay(d)}`}),
+  })));
+  const bbHi = row("bbMax"), bbLo = row("bbMin");
+  main.append(h("div", {class: "grid g3 section"},
+    card({title: "Sleep score", sub: "0–100", legend: avgLegend("7-day average"), table: dayTable("Sleep score", score),
+      draw: (el, W) => lineChart(el, W, {x: days, h: 180, aria: "Sleep score over time", zero: true, yMax: 100, noPad: true, series: pair(score, score7)})}),
+    card({title: "Body Battery", sub: "7-day average of the daily high, with the daily low-to-high range", table: () => ({cols: ["Date", {name: "Low", n: 1}, {name: "High", n: 1}], rows: days.map((d, i) => [fmtDay(d), bbLo[i], bbHi[i]]).filter(r => r[2] != null).reverse()}),
+      draw: (el, W) => lineChart(el, W, {x: days, h: 180, zero: true, aria: "Body Battery over time", area: {lo: rolling(bbLo, 7, 3), hi: rolling(bbHi, 7, 3), name: "Low–high, 7-day avg"},
+        series: [{name: "High, 7-day avg", color: "var(--accent)", values: rolling(bbHi, 7, 3), label: true, fmt: int}]})}),
+    card({title: "All-day stress", sub: "Garmin stress score, lower is calmer", legend: avgLegend("7-day average"), table: dayTable("Stress", stress),
+      draw: (el, W) => lineChart(el, W, {x: days, h: 180, zero: true, aria: "Stress over time", series: pair(stress, stress7)})})));
+  main.append(h("p", {class: "note"}, "The HRV band is calculated here from your own recent nights, so it can differ slightly from the baseline Garmin shows. Resting HR only counts days with sleep data, because days with little watch wear report values that are far too high. Training Readiness isn't charted because Garmin returns no readiness data for this account."));
+}
+
+/* ---------------------------------------------------------------- Performance tab */
+const POWER_SECS = [1, 2, 5, 10, 20, 30, 60, 120, 300, 600, 1200, 1800, 3600];
+const secsLabel = v => v < 60 ? `${v} s` : v < 3600 ? `${v / 60} min` : `${v / 3600} h`;
+function bestPower(list) {
+  return POWER_SECS.map(sec => {
+    let best = null;
+    for (const a of list) { const v = a.raw[`maxAvgPower_${sec}`]; if (v && !a.raw.excludeFromPowerCurveReports && (!best || v > best.value)) best = {value: v, act: a}; }
+    return best;
+  });
+}
+const RECORD_NAMES = {
+  "pr.label.1k.run": ["Run 1 km", "time"], "pr.label.1mile.run": ["Run 1 mile", "time"], "pr.label.5k.run": ["Run 5 km", "time"],
+  "pr.label.10k.run": ["Run 10 km", "time"], "pr.label.half.marathon": ["Half marathon", "time"], "pr.label.full.marathon": ["Marathon", "time"],
+  "pr.label.farthest.run": ["Longest run", "km"], "pr.label.farthest.cycle": ["Longest ride", "km"], "pr.label.max.elev": ["Most climbing on a ride", "m"],
+  "pr.label.max.power": ["Best 20-min power", "W"], "pr.label.40k.cycle": ["Ride 40 km", "time"], "pr.label.longest.poolswim": ["Longest pool swim", "m"],
+  "pr.label.100m.poolswim": ["Swim 100 m", "time"], "pr.label.400m.poolswim": ["Swim 400 m", "time"], "pr.label.750m.poolswim": ["Swim 750 m", "time"],
+  "pr.label.1000m.poolswim": ["Swim 1,000 m", "time"], "pr.label.1500m.poolswim": ["Swim 1,500 m", "time"],
+};
+function viewPerformance(main) {
+  const D = S.data, P = D.profile, start = rangeStart(), to = D.today, days = dayRange(start, to);
+  main.append(filters());
+  const bikes = D.acts.filter(a => a.sport === "bike"), bikesNow = bikes.filter(inRange);
+  const showBike = S.sport === "all" || S.sport === "bike", showRun = S.sport === "all" || S.sport === "run";
+  const ftp = P.ftp && P.ftp.functionalThresholdPower, thr = P.threshold || {};
+  const curve = bestPower(bikesNow), allTime = bestPower(bikes);
+  const v1 = latest("vo2run", 3650), v2 = latest("vo2bike", 3650);
+  const tiles = [];
+  if (showBike && ftp) tiles.push(tile("Cycling FTP", int(ftp), "W", {text: "From Garmin"}));
+  const i20 = POWER_SECS.indexOf(1200);
+  if (showBike && curve[i20]) tiles.push(tile("Best 20 min in range", int(curve[i20].value), "W", {text: `All-time ${int(allTime[i20].value)} W`}));
+  if (showRun && v1) tiles.push(tile("VO₂max, running", one(v1.value), null, {text: dayShort.format(toDate(v1.day))}, dayValues(to - 180, to, "vo2run")));
+  if (showBike && v2) tiles.push(tile("VO₂max, cycling", one(v2.value), null, {text: dayShort.format(toDate(v2.day))}));
+  if (showRun && thr.heartRate) tiles.push(tile("Threshold HR, running", int(thr.heartRate), "bpm"));
+  if (showBike && thr.heartRateCycling) tiles.push(tile("Threshold HR, cycling", int(thr.heartRateCycling), "bpm"));
+  if (showRun) for (const [key, label] of [["r5k", "5 km"], ["r10k", "10 km"], ["rHalf", "Half marathon"], ["rFull", "Marathon"]]) {
+    const cur = latest(key), series = dayValues(start, to, key), first = series.find(v => v != null);
+    if (!cur) continue;
+    const change = first != null ? cur.value - first : 0;
+    tiles.push(tile(`Predicted ${label}`, clock(cur.value), null, first != null && change ? {text: `${change < 0 ? "▼ " : "▲ "}${clock(Math.abs(change))} over this range`, tone: deltaTone(change, false)} : null));
+  }
+  main.append(h("div", {class: "tiles"}, tiles));
+
+  if (showBike) {
+    const xTicks = [1, 5, 30, 60, 300, 1200, 3600].map(v => ({v, label: secsLabel(v)}));
+    const curveTable = () => ({cols: ["Duration", {name: "This range (W)", n: 1}, {name: "All time (W)", n: 1}, "Set in"],
+      rows: POWER_SECS.map((sec, i) => [secsLabel(sec), curve[i] ? int(curve[i].value) : null, allTime[i] ? int(allTime[i].value) : null, curve[i] ? curve[i].act.name : null])});
+    const monthly = []; const best = new Map();
+    for (const a of bikes) { const v = a.raw.maxAvgPower_1200; const k = monthStart(a.day); if (v && !a.raw.excludeFromPowerCurveReports && inRange(a)) best.set(k, Math.max(best.get(k) || 0, v)); }
+    for (let d = monthStart(start); d <= to; d = dn(iso(d + 32).slice(0, 7) + "-01")) monthly.push(d);
+    main.append(h("div", {class: "grid g2 section"},
+      card({title: "Power curve", sub: "Best average power for each duration, in the selected range and all time",
+        legend: [seriesKey("var(--bike)", "This range"), seriesKey("var(--mark-muted)", "All time")], table: curveTable,
+        draw: (el, W) => lineChart(el, W, {x: POWER_SECS, log: true, h: 260, zero: true, xTicks, aria: "Cycling power curve", xTitle: v => `Best ${secsLabel(v)}`, yFmt: axisNum,
+          hlines: ftp ? [{y: ftp, label: `FTP ${ftp} W`}] : [],
+          series: [{name: "All time", color: "var(--mark-muted)", values: allTime.map(x => x && x.value), tipFmt: v => `${int(v)} W`}, {name: "This range", color: "var(--bike)", values: curve.map(x => x && x.value), tipFmt: v => `${int(v)} W`}]})}),
+      card({title: "Best 20-min power by month", sub: "Watts. Your hardest effort each month; months without a ride with power stay empty",
+        table: () => ({cols: ["Month", {name: "Best 20 min (W)", n: 1}], rows: monthly.map(d => [monYearFmt.format(toDate(d)), best.get(d) ? int(best.get(d)) : null]).reverse()}),
+        draw: (el, W) => stackChart(el, W, {x: monthly, h: 260, aria: "Best 20-minute power by month", bandTitle: d => monYearFmt.format(toDate(d)), tipFmt: v => `${int(v)} W`, noTotal: true,
+          series: [{name: "Best 20 min", color: "var(--bike)", values: monthly.map(d => best.get(d) || 0)}]})})));
+  }
+  // Efficiency: output per heartbeat, on steady sessions of 20+ minutes.
+  const effCard = (sport, title, sub, valueOf, unit) => {
+    const vals = new Map();
+    for (const a of D.acts) if (a.sport === sport && a.moving >= 1200 && a.hr >= 60 && inRange(a)) { const v = valueOf(a); if (v) vals.set(a.day, v); }
+    const raw = days.map(d => vals.get(d) ?? null), avg = rolling(raw, 42, 3);
+    return card({title, sub, legend: [seriesKey("var(--mark-muted)", "Session"), seriesKey(SPORTS[sport].color, "42-day average")],
+      table: () => ({cols: ["Date", {name: unit, n: 1}], rows: days.map((d, i) => [fmtDay(d), raw[i] == null ? null : raw[i].toFixed(2)]).filter(r => r[1] != null).reverse()}),
+      draw: (el, W) => lineChart(el, W, {x: days, h: 220, aria: title, yFmt: v => v.toFixed(2),
+        series: [{name: "Session", color: "var(--mark-muted)", values: raw, dots: true, tipFmt: v => v.toFixed(2)}, {name: "42-day average", color: SPORTS[sport].color, values: avg, span: true, label: true, fmt: v => v.toFixed(2)}]})});
+  };
+  const eff = [];
+  if (showRun) eff.push(effCard("run", "Running efficiency", "Metres per minute per heartbeat, sessions of 20+ min. Rising means faster at the same effort", a => a.speed ? a.speed * 60 / a.hr : null, "m/min per bpm"));
+  if (showBike) eff.push(effCard("bike", "Cycling efficiency", "Normalized power per heartbeat, rides of 20+ min with power", a => a.np ? a.np / a.hr : null, "W per bpm"));
+  if (eff.length) main.append(h("div", {class: "grid g2 section"}, eff));
+
+  const vo2run = dayValues(start, to, "vo2run"), vo2bike = dayValues(start, to, "vo2bike");
+  if (S.sport === "all" || S.sport === "run" || S.sport === "bike") {
+    const series = [];
+    if (showRun) series.push({name: "Running", color: "var(--run)", values: vo2run, span: true, label: true, fmt: one});
+    if (showBike) series.push({name: "Cycling", color: "var(--bike)", values: vo2bike, span: true, label: true, fmt: one});
+    main.append(h("div", {class: "section"}, card({title: "VO₂max", sub: "Garmin's estimate, ml/kg/min. Updated only after qualifying activities",
+      legend: series.map(x => seriesKey(x.color, x.name)),
+      table: () => ({cols: ["Date", ...series.map(x => ({name: x.name, n: 1}))], rows: days.map((d, i) => [fmtDay(d), ...series.map(x => x.values[i] == null ? null : one(x.values[i]))]).filter(r => r.slice(1).some(v => v != null)).reverse()}),
+      draw: (el, W) => lineChart(el, W, {x: days, h: 200, aria: "VO2max over time", yFmt: v => one(v), series})})));
+  }
+  if (P.records && P.recordTypes) {
+    const names = new Map(P.recordTypes.map(t => [t.id, t.key]));
+    const rows = P.records.map(r => ({r, spec: RECORD_NAMES[names.get(r.typeId)]})).filter(x => x.spec && (S.sport === "all" || sportOf(x.r.activityType || "") === S.sport));
+    const fmtRec = (v, kind) => kind === "time" ? clock(v) : kind === "km" ? km(v) : kind === "m" ? `${int(v)} m` : `${int(v)} W`;
+    const go = id => { location.hash = `activity/${id}`; };
+    if (rows.length) main.append(h("section", {class: "card"},
+      h("div", {class: "card-head"}, h("div", null, h("h2", null, "Personal records"), h("p", null, "As Garmin stores them. Click a row to open the activity"))),
+      h("div", {class: "wrap", style: "max-height:none"}, h("table", null,
+        h("thead", null, h("tr", null, h("th", null, "Record"), h("th", {class: "n"}, "Value"), h("th", null, "Date"), h("th", null, "Activity"))),
+        h("tbody", null, rows.map(({r, spec}) => h("tr", {class: "link", onclick: () => go(r.activityId)},
+          h("td", null, h("span", {class: "name"}, h("span", {class: "dot", style: `background:${SPORTS[sportOf(r.activityType || "")].color}`}), spec[0])),
+          h("td", {class: "n"}, fmtRec(r.value, spec[1])), h("td", null, (r.actStartDateTimeInGMTFormatted || "").slice(0, 10)), h("td", null, r.activityName || "")))))))) ;
+  }
+}
+
+/* ---------------------------------------------------------------- Calendar tab */
+function viewCalendar(main) {
+  const D = S.data;
+  if (S.calMonth == null) S.calMonth = monthStart(D.today);
+  const first = S.calMonth, next = dn(iso(first + 32).slice(0, 7) + "-01");
+  const to = D.today, from = monday(to - 364);
+  const load = new Map(); for (const a of D.acts) if (a.day >= from) load.set(a.day, (load.get(a.day) || 0) + a.load);
+  const positive = [...load.values()].filter(v => v > 0).sort((a, b) => a - b);
+  const cut = q => positive.length ? positive[Math.floor(q * (positive.length - 1))] : 0;
+  const cuts = [cut(.25), cut(.5), cut(.75), cut(.92)], ramp = ["var(--z1)", "var(--z2)", "var(--z3)", "var(--z4)", "var(--z5)"];
+  const stepOf = v => { let i = 0; while (i < 4 && v > cuts[i]) i++; return i; };
+  main.append(h("div", {class: "section"}, card({
+    title: "Last 12 months", sub: "Each square is a day, Monday at the top. Stronger colour means more training load",
+    legend: [{name: "Rest", color: "var(--wash)", rect: true}, ...ramp.map((c, i) => ({name: i < 4 ? `up to ${int(cuts[i])}` : `over ${int(cuts[3])}`, color: c, rect: true}))],
+    table: () => { const rows = []; for (let w = monday(to); w >= from; w -= 7) rows.push([fmtDay(w), int(dayRange(w, w + 6).reduce((t, d) => t + (load.get(d) || 0), 0))]); return {cols: ["Week of", {name: "Load", n: 1}], rows}; },
+    draw: (el, W) => {
+      const weeks = Math.ceil((to - from + 1) / 7), left = 28, cell = Math.max(8, Math.min(16, Math.floor((W - left) / weeks) - 2)), step = cell + 2;
+      const svg = s("svg", {width: W, height: step * 7 + 20, role: "img", "aria-label": "Daily training load, last 12 months"});
+      ["Mon", "", "Wed", "", "Fri", "", "Sun"].forEach((t, i) => t && svg.append(s("text", {x: 0, y: 18 + i * step + cell - 2}, t)));
+      let lastMonth = "";
+      const cells = [];
+      for (let d = from; d <= to; d++) {
+        const wk = Math.floor((d - from) / 7), dow = (d - from) % 7, x = left + wk * step, y = 18 + dow * step, v = load.get(d) || 0;
+        if (dow === 0) { const m = monFmt.format(toDate(d)); if (m !== lastMonth && x + 26 < W) { svg.append(s("text", {x, y: 10}, m)); lastMonth = m; } }
+        svg.append(s("rect", {x, y, width: cell, height: cell, rx: 2, fill: v > 0 ? ramp[stepOf(v)] : "var(--wash)"}));
+        cells.push({d, v});
+      }
+      bindHover(svg, cells.length, e => {
+        const r = svg.getBoundingClientRect(), wk = Math.floor((e.clientX - r.left - left) / step), dow = Math.floor((e.clientY - r.top - 18) / step);
+        if (wk < 0 || dow < 0 || dow > 6) return null;
+        const i = wk * 7 + dow; return i < cells.length ? i : null;
+      }, (i, x, y) => {
+        const c = cells[i], acts = D.acts.filter(a => a.day === c.d);
+        showTip(fmtDayW(c.d), [{value: int(c.v), name: "load"}, ...acts.map(a => ({value: SPORTS[a.sport].label, name: a.name, color: SPORTS[a.sport].color}))], x, y);
+      }, hideTip);
+      el.replaceChildren(svg);
+    },
+  })));
+
+  main.append(h("div", {class: "filters"},
+    h("div", {class: "seg"},
+      h("button", {type: "button", "aria-label": "Previous month", onclick: () => { S.calMonth = monthStart(first - 1); render(); }}, "←"),
+      h("button", {type: "button", onclick: () => { S.calMonth = monthStart(D.today); render(); }}, "This month"),
+      h("button", {type: "button", "aria-label": "Next month", onclick: () => { S.calMonth = next; render(); }}, "→")),
+    h("strong", {style: "font-size:16px"}, monYearFmt.format(toDate(first))),
+    legend(SPORT_KEYS.map(k => seriesKey(SPORTS[k].color, SPORTS[k].label, true)))));
+  const start = monday(first), end = monday(next - 1) + 6;
+  const planned = (D.profile.planned || []).filter(p => !p.done && p.day);
+  const cal = h("div", {class: "cal"}, ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(t => h("div", {class: "dow"}, t)), h("div", {class: "dow"}, "Week"));
+  for (let w = start; w <= end; w += 7) {
+    let wkSecs = 0, wkLoad = 0, wkDist = 0;
+    for (let d = w; d < w + 7; d++) {
+      const acts = D.acts.filter(a => a.day === d), plans = planned.filter(p => dn(p.day) === d);
+      for (const a of acts) { wkSecs += a.moving; wkLoad += a.load; wkDist += a.dist; }
+      cal.append(h("div", {class: (d < first || d >= next ? "out " : "") + (d === D.today ? "today" : "")},
+        h("span", {class: "num"}, iso(d).slice(8).replace(/^0/, "")),
+        acts.map(a => h("a", {class: "chip", href: `#activity/${a.id}`},
+          h("div", {class: "ttl"}, h("span", {class: "dot", style: `background:${SPORTS[a.sport].color}`}), h("span", null, a.name)),
+          h("div", {class: "meta"}, [clock(a.moving), a.dist ? km(a.dist) : null, a.load ? `load ${int(a.load)}` : null].filter(Boolean).join(" · ")))),
+        plans.map(p => h("div", {class: "chip plan"},
+          h("div", {class: "ttl"}, h("span", {class: "dot", style: `background:${SPORTS[sportOf(p.sport || "")].color}`}), h("span", null, p.name || "Workout")),
+          h("div", {class: "meta"}, "Planned" + (p.secs ? ` · ${clock(p.secs)}` : ""))))));
+    }
+    cal.append(h("div", {class: "wk"}, wkSecs ? [h("b", null, hours(wkSecs)), `${km(wkDist)}`, h("br"), `load ${int(wkLoad)}`] : null));
+  }
+  main.append(h("div", {style: "overflow-x:auto"}, cal));
+}
+
+/* ---------------------------------------------------------------- Activities tab */
+const COLUMNS = [
+  {key: "day", name: "Date", get: a => a.raw.startTimeLocal, show: a => `${dayFmt.format(toDate(a.day))} ${a.time}`},
+  {key: "name", name: "Activity", get: a => a.name.toLowerCase(), show: a => h("span", {class: "name"}, h("span", {class: "dot", style: `background:${SPORTS[a.sport].color}`}), a.name)},
+  {key: "dist", name: "Distance", n: 1, get: a => a.dist, show: a => a.dist ? km(a.dist) : "–"},
+  {key: "moving", name: "Time", n: 1, get: a => a.moving, show: a => clock(a.moving)},
+  {key: "speed", name: "Pace / speed", n: 1, get: a => a.speed || 0, show: a => paceFor(a.sport, a.speed)},
+  {key: "hr", name: "Avg HR", n: 1, get: a => a.hr || 0, show: a => int(a.hr)},
+  {key: "np", name: "NP", n: 1, get: a => a.np || 0, show: a => a.np ? `${int(a.np)} W` : "–"},
+  {key: "elev", name: "Elevation", n: 1, get: a => a.elev, show: a => a.elev ? `${int(a.elev)} m` : "–"},
+  {key: "load", name: "Load", n: 1, get: a => a.load, show: a => a.load ? int(a.load) : "–"},
+  {key: "te", name: "Aerobic TE", n: 1, get: a => a.te || 0, show: a => a.te ? one(a.te) : "–"},
+];
+function viewActivities(main) {
+  main.append(filters({search: true}));
+  const q = S.search.trim().toLowerCase();
+  let list = rangeActs().filter(a => !q || a.name.toLowerCase().includes(q) || a.type.replace(/_/g, " ").includes(q));
+  const col = COLUMNS.find(c => c.key === S.sort[0]);
+  list = list.slice().sort((a, b) => { const x = col.get(a), y = col.get(b); return (x < y ? -1 : x > y ? 1 : 0) * S.sort[1]; });
+  main.append(h("section", {class: "card"},
+    h("div", {class: "card-head"}, h("div", null, h("h2", null, `${int(list.length)} activities`),
+      h("p", null, `${hours(sumOf(list, a => a.moving))} · ${km(sumOf(list, a => a.dist))} · load ${int(sumOf(list, a => a.load))}`))),
+    h("div", {class: "wrap", style: "max-height:none"}, h("table", null,
+      h("thead", null, h("tr", null, COLUMNS.map(c => h("th", {class: c.n ? "n" : null, "aria-sort": S.sort[0] === c.key ? (S.sort[1] > 0 ? "ascending" : "descending") : null},
+        h("button", {type: "button", onclick: () => { S.sort = [c.key, S.sort[0] === c.key ? -S.sort[1] : (c.n || c.key === "day" ? -1 : 1)]; render(); }},
+          c.name + (S.sort[0] === c.key ? (S.sort[1] > 0 ? " ↑" : " ↓") : "")))))),
+      h("tbody", null, list.slice(0, S.shown).map(a => h("tr", {class: "link", onclick: () => { location.hash = `activity/${a.id}`; }},
+        COLUMNS.map(c => h("td", {class: c.n ? "n" : null}, c.show(a)))))))),
+    list.length > S.shown ? h("div", {style: "text-align:center;padding:10px"}, h("button", {class: "btn", type: "button", onclick: () => { S.shown += 200; render(); }}, `Show more (${int(list.length - S.shown)} left)`)) : null));
+}
+
+/* ---------------------------------------------------------------- one activity */
+function routeSvg(route, color) {
+  const lats = route.map(p => p[0]), lons = route.map(p => p[1]);
+  const midLat = (Math.min(...lats) + Math.max(...lats)) / 2, k = Math.cos(midLat * Math.PI / 180);
+  const x = lons.map(v => v * k), minX = Math.min(...x), maxX = Math.max(...x), minY = Math.min(...lats), maxY = Math.max(...lats);
+  const W = 400, H = 300, pad = 12, scale = Math.min((W - 2 * pad) / ((maxX - minX) || 1e-6), (H - 2 * pad) / ((maxY - minY) || 1e-6));
+  const ox = (W - (maxX - minX) * scale) / 2, oy = (H - (maxY - minY) * scale) / 2;
+  const pts = route.map((p, i) => [ox + (x[i] - minX) * scale, H - oy - (p[0] - minY) * scale]);
+  const a = pts[0], b = pts[pts.length - 1];
+  return s("svg", {class: "route", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Route shape"},
+    s("polyline", {points: pts.map(p => p.map(v => v.toFixed(1)).join(",")).join(" "), fill: "none", stroke: color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round"}),
+    s("circle", {cx: a[0], cy: a[1], r: 4, fill: "var(--good)", stroke: "var(--surface)", "stroke-width": 2}),
+    s("circle", {cx: b[0], cy: b[1], r: 4, fill: "var(--ink)", stroke: "var(--surface)", "stroke-width": 2}));
+}
+function viewActivity(main, id) {
+  const a = S.data.acts.find(x => x.id === id);
+  main.append(h("p", {style: "margin:0 0 10px"}, h("a", {href: "#activities"}, "← All activities")));
+  if (!a) { main.append(h("div", {class: "empty"}, "That activity isn't in the local data.")); return; }
+  main.append(h("h1", {style: "font-size:21px;margin:0"}, a.name));
+  main.append(h("p", {style: "margin:0 0 14px;color:var(--ink2)"}, `${fmtDayW(a.day)} at ${a.time} · ${a.type.replace(/_/g, " ")}`));
+  const tiles = [
+    a.dist ? tile("Distance", one(a.dist / 1000), "km") : null,
+    tile("Moving time", clock(a.moving)),
+    a.speed ? tile(a.sport === "bike" || a.sport === "other" ? "Average speed" : "Average pace", paceFor(a.sport, a.speed)) : null,
+    a.hr ? tile("Heart rate", int(a.hr), "bpm", a.maxHr ? {text: `Max ${int(a.maxHr)}`} : null) : null,
+    a.power ? tile("Average power", int(a.power), "W", a.np ? {text: `Normalized ${int(a.np)} W`} : null) : null,
+    a.elev ? tile("Elevation gain", int(a.elev), "m") : null,
+    a.load ? tile("Training load", int(a.load), null, a.tss ? {text: `TSS ${int(a.tss)}`} : null) : null,
+    a.te ? tile("Aerobic effect", one(a.te), null, a.raw.anaerobicTrainingEffect ? {text: `Anaerobic ${one(a.raw.anaerobicTrainingEffect)}`} : null) : null,
+  ];
+  main.append(h("div", {class: "tiles"}, tiles));
+  const holder = h("div", null, h("div", {class: "empty"}, "Loading details from Garmin…"));
+  main.append(holder);
+  const tabToken = renderToken;
+  fetch(`api/activity/${id}`).then(r => r.json()).then(d => {
+    if (tabToken !== renderToken) return;
+    if (d.error) { holder.replaceChildren(h("div", {class: "empty"}, `Couldn't load details: ${d.error}`)); return; }
+    holder.replaceChildren();
+    drawActivity(holder, a, d);
+    flushCharts();
+  });
+}
+function drawActivity(host, a, d) {
+  const st = d.streams, color = SPORTS[a.sport].color, t = st.t || [];
+  const group = [];
+  const defs = [];
+  const xTicks = W => { const span = t[t.length - 1] || 1, step = [60, 120, 300, 600, 900, 1800, 3600, 7200].find(v => span / v <= Math.max(3, W / 80)) || 7200, out = []; for (let v = step; v < span; v += step) out.push({v, label: clock(v)}); return out; };
+  const clean = (arr, f = v => v) => arr.map(v => v == null ? null : f(v));
+  if (st.hr) defs.push({title: "Heart rate", unit: "bpm", values: clean(st.hr), fmt: v => `${int(v)} bpm`, color: "var(--accent)"});
+  if (st.speed) {
+    if (a.sport === "run") defs.push({title: "Pace", unit: "min/km", values: clean(st.speed, v => v > .7 ? 1000 / v : null), invert: true, yFmt: clock, fmt: v => `${clock(v)} /km`, color, clampPct: .02});
+    else if (a.sport !== "swim") defs.push({title: "Speed", unit: "km/h", values: clean(st.speed, v => v * 3.6), fmt: v => `${one(v)} km/h`, color, zero: true});
+  }
+  if (st.power) defs.push({title: "Power", unit: "W", values: rolling(clean(st.power), 5), fmt: v => `${int(v)} W`, color, zero: true});
+  if (st.cad) defs.push({title: "Cadence", unit: a.sport === "run" ? "spm" : "rpm", values: clean(st.cad, v => v > 0 ? v : null), fmt: v => `${int(v)}`, color: "var(--muted)"});
+  if (st.ele) defs.push({title: "Elevation", unit: "m", values: clean(st.ele), fmt: v => `${int(v)} m`, color: "var(--muted)"});
+  const left = h("div", {class: "grid"});
+  if (t.length) for (const def of defs) {
+    left.append(card({title: def.title, sub: def.unit,
+      table: () => ({cols: ["Time", {name: `${def.title} (${def.unit})`, n: 1}], rows: t.map((v, i) => [clock(v), def.values[i] == null ? null : (def.yFmt || int)(def.values[i])]).filter(r => r[1] != null)}),
+      draw: (el, W) => { group.length = Math.min(group.length, defs.length); lineChart(el, W, {x: t, h: 130, aria: def.title, group, invert: def.invert, yFmt: def.yFmt, zero: def.zero, clampPct: def.clampPct, ml: 46, xTicks: xTicks(W), xTitle: v => `At ${clock(v)}`, tickCount: 3,
+        series: [{name: def.title, color: def.color, values: def.values, fmt: def.fmt, tipFmt: def.fmt}]}); }}));
+  }
+  const side = h("div", {class: "grid", style: "align-content:start"});
+  if (d.route && d.route.length > 1) side.append(h("section", {class: "card"},
+    h("div", {class: "card-head"}, h("div", null, h("h2", null, "Route"), h("p", null, "Shape only, no map tiles, so your location stays on this PC"))),
+    routeSvg(d.route, color)));
+  const zoneParts = ZONES5.map((z, i) => ({name: z.name, color: z.color, value: a.raw[z.key] || 0, ink: `var(--zi${i + 1})`}));
+  if (zoneParts.some(p => p.value)) side.append(card({title: "Time in heart-rate zones", draw: el => el.replaceChildren(segmented(zoneParts))}));
+  host.append(h("div", {class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(340px,1fr));margin-bottom:14px"},
+    h("div", {style: "grid-column:span 2;min-width:0"}, left), side));
+  if (d.laps && d.laps.length) {
+    const cad = d.laps.some(l => l.averageBikeCadence) ? "averageBikeCadence" : "averageRunCadence";
+    host.append(h("section", {class: "card"}, h("div", {class: "card-head"}, h("div", null, h("h2", null, `Laps (${d.laps.length})`))),
+      h("div", {class: "wrap"}, h("table", null,
+        h("thead", null, h("tr", null, ["#", "Distance", "Time", "Pace / speed", "Avg HR", "Max HR", "Power", "NP", "Cadence", "Elevation"].map((c, i) => h("th", {class: i ? "n" : null}, c)))),
+        h("tbody", null, d.laps.map((l, i) => h("tr", null, [i + 1, l.distance ? km(l.distance) : "–", clock(l.movingDuration || l.duration), paceFor(a.sport, l.averageSpeed), int(l.averageHR), int(l.maxHR),
+          l.averagePower ? `${int(l.averagePower)} W` : "–", l.normalizedPower ? `${int(l.normalizedPower)} W` : "–", int(l[cad]), l.elevationGain ? `${int(l.elevationGain)} m` : "–"].map((v, j) => h("td", {class: j ? "n" : null}, String(v))))))))));
+  }
+}
+
+/* ---------------------------------------------------------------- shell */
+const VIEWS = {fitness: viewFitness, training: viewTraining, recovery: viewRecovery, performance: viewPerformance, calendar: viewCalendar, activities: viewActivities};
+let renderToken = 0;
+function flushCharts() { for (const c of pending) { c.plot.__draw = c.draw; c.draw(); } pending.length = 0; }
+function render() {
+  renderToken++;
+  hideTip();
+  const main = document.getElementById("main"), route = location.hash.slice(1) || "fitness";
+  const [tab, id] = route.split("/");
+  const known = tab === "activity" ? "activities" : VIEWS[tab] ? tab : "fitness";
+  document.getElementById("nav").replaceChildren(...TABS.map(([k, label]) => h("a", {href: `#${k}`, "aria-current": k === known ? "page" : null}, label)));
+  pending.length = 0;
+  const scroll = scrollY;
+  main.replaceChildren();
+  if (!S.data || !S.data.acts.length) {
+    main.append(h("div", {class: "empty"}, statusNow && statusNow.running
+      ? `Reading your Garmin history for the first time. This takes about a minute. ${statusNow.message || ""}`
+      : "No data yet. Press Sync to read your Garmin history."));
+    return;
+  }
+  if (tab === "activity" && id) viewActivity(main, +id);
+  else (VIEWS[tab] || viewFitness)(main);
+  flushCharts();
+  scrollTo(0, scroll);
+}
+let lastWidth = innerWidth, resizeTimer;
+addEventListener("resize", () => {
+  if (innerWidth === lastWidth) return;
+  lastWidth = innerWidth; clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(render, 150);
+});
+addEventListener("hashchange", () => { scrollTo(0, 0); render(); });
+
+let statusNow = null;
+function ago(sec) {
+  const m = Math.round((Date.now() / 1000 - sec) / 60);
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
+}
+function paintSync() {
+  const text = document.getElementById("syncText"), btn = document.getElementById("syncBtn"), st = statusNow || {};
+  btn.disabled = !!st.running;
+  document.getElementById("main").classList.toggle("busy", !!st.running && !!(S.data && S.data.acts.length));
+  if (st.running) text.textContent = st.message || "Syncing";
+  else if (st.error) text.textContent = "Sync failed";
+  else text.textContent = S.data && S.data.lastSync ? `Synced ${ago(S.data.lastSync)}` : "";
+  const old = document.getElementById("syncError"); if (old) old.remove();
+  if (!st.running && st.error) document.getElementById("main").prepend(h("div", {class: "banner", id: "syncError"}, st.error));
+}
+async function loadData() {
+  const r = await fetch("api/data");
+  if (!r.ok) throw new Error(`Couldn't read local data (${r.status})`);
+  S.data = prepare(await r.json());
+}
+async function poll() {
+  statusNow = await (await fetch("api/status")).json();
+  paintSync();
+  if (statusNow.running) { if (!S.data || !S.data.acts.length) render(); setTimeout(poll, 1500); return; }
+  await loadData(); render(); paintSync();
+}
+async function startSync() {
+  await fetch("api/sync", {method: "POST", headers: {"X-Dashboard": "1"}});
+  poll();
+}
+document.getElementById("syncBtn").addEventListener("click", startSync);
+document.getElementById("themeBtn").addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next; localStorage.setItem("theme", next);
+  document.getElementById("themeBtn").textContent = next === "dark" ? "Light" : "Dark";
+});
+(function init() {
+  const theme = localStorage.getItem("theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  document.documentElement.dataset.theme = theme;
+  document.getElementById("themeBtn").textContent = theme === "dark" ? "Light" : "Dark";
+  loadData().then(() => {
+    render(); paintSync();
+    const D = S.data;
+    if (!D.lastSync || Date.now() / 1000 - D.lastSync > D.staleAfter) startSync(); else poll();
+  });
+})();
+</script>
+</body>
+</html>
