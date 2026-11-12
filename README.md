@@ -25,6 +25,31 @@ also goes to Anthropic. Your password is used once by `login.py` and never store
 | `create_swim_workout` | Pool swim: distances, rests, stroke, pace per 100 m, pool length |
 | `cycling_ftp` | Your current FTP from Garmin |
 | `delete_workout` | Remove a workout |
+| `download_fit` | Save an activity's original `.fit` file to a folder on your PC |
+| `merge_fit` | Join several `.fit` files into one activity (gaps become pauses, laps kept) |
+| `upload_fit` | Upload a `.fit` file to Garmin Connect as a new activity |
+| `delete_activity` | Delete an activity in Garmin (saves a `.fit` backup first) |
+| `combine_activities` | Download, merge and upload in one step |
+
+### Joining activities that were split by accident
+Ask Claude something like *"combine my two runs from Sunday into one"*. It finds
+the activities, runs `combine_activities`, and uploads the combined one. Your
+Garmin→Strava sync then sends it to Strava like any watch upload.
+
+- The originals are **not** deleted automatically. Claude asks you first and then
+  uses `delete_activity`, which saves a backup `.fit` before deleting.
+- **Strava:** Strava's API can't delete activities, so delete the single
+  activities on Strava yourself. If Strava refuses the combined activity as a
+  duplicate, delete the singles there first and upload the merged `.fit` from the
+  folder by hand.
+- Files go to `Documents\Garmin FIT` (change it with the `GARMIN_FIT_DIR`
+  environment variable). They only leave your PC when uploaded to Garmin.
+- The merge works only for activities of the same sport that don't overlap in time.
+  All GPS, heart rate, power and sensor data is kept. Session totals (distance,
+  time, calories, average HR, cadence and power) are recalculated. The watch's own
+  summaries of each activity (training effect, splits, time in zones) are dropped
+  because they'd be wrong for the combined activity. Garmin Connect recomputes some
+  of these from the data; any it doesn't are missing.
 
 All `create_*` tools take an optional `date`. With a date, the workout goes on
 your Garmin Connect calendar and syncs to the watch. On the watch it shows up

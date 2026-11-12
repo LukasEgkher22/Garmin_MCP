@@ -238,7 +238,7 @@ function prepare(raw) {
   }));
   const today = dn(raw.today);
   const days = new Map(Object.entries(raw.days).map(([k, v]) => [dn(k), cleanDay(v)]));
-  return {acts, days, today, profile: raw.profile || {}, lastSync: raw.lastSync, staleAfter: raw.staleAfter, cache: {}};
+  return {acts, rawActs: sorted, days, today, profile: raw.profile || {}, lastSync: raw.lastSync, staleAfter: raw.staleAfter, cache: {}};
 }
 const inSport = a => S.sport === "all" || a.sport === S.sport;
 const useMonths = () => RANGES[S.range] == null || RANGES[S.range] > 200;
@@ -364,7 +364,7 @@ function bindHover(svg, count, atPointer, show, hide) {
       bands [{lo,hi,label,wash}], hlines [{y,label}], yFmt, zero, yMin, yMax, invert, log, xTicks, xTitle, h, group, clampPct */
 function lineChart(el, W, o) {
   const H = o.h || 210, labelled = o.series.filter(x => x.label);
-  const m = {l: o.ml || 40, r: o.bands ? 74 : labelled.length ? 44 : 12, t: 10, b: 22};
+  const m = {l: o.ml || 40, r: o.mr || (o.bands ? 74 : labelled.length ? 44 : 12), t: 10, b: 22};
   const xs = o.x, n = xs.length;
   const tx = v => o.log ? Math.log(v) : v;
   const x0 = tx(xs[0]), x1 = tx(xs[n - 1]);
@@ -851,6 +851,71 @@ const RECORD_NAMES = {
   "pr.label.100m.poolswim": ["Swim 100 m", "time"], "pr.label.400m.poolswim": ["Swim 400 m", "time"], "pr.label.750m.poolswim": ["Swim 750 m", "time"],
   "pr.label.1000m.poolswim": ["Swim 1,000 m", "time"], "pr.label.1500m.poolswim": ["Swim 1,500 m", "time"],
 };
+/* ---------------------------------------------------------------- race prediction model
+   Every race-like effort is projected to the race distance with Riegel's formula T = t × (D/d)^1.06,
+   and the projections are averaged with weight w = e^(−age/90 days) × type weight × e^(−|ln(D/d)|),
+   so recent efforts and efforts close to the race distance count most. */
+const RACE_DISTS = [["r5k", "5 km", 5000], ["r10k", "10 km", 10000], ["rHalf", "Half marathon", 21097.5], ["rFull", "Marathon", 42195]];
+const MODEL = {riegel: 1.06, tauDays: 90, maxAgeDays: 365, offBike: 0.95, repToTenK: 3,
+  kindWeight: {race: 1, "off-bike": 0.8, intervals: 0.7}};
+/* Sessions the automatic rule can't judge from the summary: runs off the bike (time × 0.95 = fresh
+   equivalent) and interval sets (1 km reps with ≤ 90 s jog ≈ 10 km race pace minus 3 s/km). */
+const KEY_EFFORTS = {
+  23326944239: {kind: "off-bike", label: "70.3 Helsingør run"},
+  24961809775: {kind: "intervals", label: "6×1 km, 90 s jog", repM: 1000, repAvgS: 204.08},
+};
+const SKIP_EFFORTS = new Set([22313719463]); // heart-rate glitch: avg 181 bpm at an easy pace
+function hrMax() {
+  const z = S.data.profile.hrZones, list = Array.isArray(z) ? z : z ? [z] : [];
+  const pick = list.find(x => x && /RUN|DEFAULT/i.test(x.sport || "") && x.maxHeartRateUsed) || list.find(x => x && x.maxHeartRateUsed);
+  return pick ? pick.maxHeartRateUsed : 192;
+}
+/* Any other run of 3+ km and 12+ min counts as race-like when its average HR is at least
+   (0.95 − 0.035 × ln(minutes / 15)) × max HR: 95% for a 15-min effort, ~89% at 75 min, ~87% at 2.5 h. */
+function raceEfforts() {
+  const D = S.data;
+  if (D.cache.efforts) return D.cache.efforts;
+  const max = hrMax(), out = [];
+  for (const r of D.rawActs) {
+    if (sportOf(r.type || "") !== "run" || SKIP_EFFORTS.has(r.activityId)) continue;
+    const key = KEY_EFFORTS[r.activityId];
+    let d = r.distance || 0, t = r.duration || r.movingDuration || 0, kind = "race";
+    if (key) {
+      kind = key.kind;
+      if (kind === "off-bike") t *= MODEL.offBike;
+      if (kind === "intervals") { d = 10000; t = 10 * (key.repAvgS * 1000 / key.repM + MODEL.repToTenK); }
+    } else {
+      const min = (r.movingDuration || r.duration || 0) / 60;
+      if (d < 3000 || min < 12 || !r.averageHR) continue;
+      if (r.averageHR / max < 0.95 - 0.035 * Math.log(min / 15)) continue;
+    }
+    if (!d || !t) continue;
+    out.push({id: r.activityId, day: dn(r.startTimeLocal), label: (key && key.label) || r.activityName || "Run", kind, d, t});
+  }
+  return (D.cache.efforts = out);
+}
+function predictOn(day, dist) {
+  let sw = 0, swt = 0;
+  const parts = [];
+  for (const e of raceEfforts()) {
+    const age = day - e.day;
+    if (age < 0 || age > MODEL.maxAgeDays) continue;
+    const proj = e.t * (dist / e.d) ** MODEL.riegel;
+    const w = Math.exp(-age / MODEL.tauDays) * MODEL.kindWeight[e.kind] * Math.exp(-Math.abs(Math.log(dist / e.d)));
+    sw += w; swt += w * proj; parts.push({e, proj, w});
+  }
+  if (!sw) return null;
+  parts.forEach(x => { x.share = x.w / sw; });
+  return {time: swt / sw, parts: parts.sort((a, b) => b.share - a.share)};
+}
+function modelTip(p) {
+  if (!p) return [{value: "–", name: "Claude model: no race-like effort in the 12 months before"}];
+  const rows = [{value: "T = t × (D/d)^1.06", name: "each effort projected to the race distance"},
+                {value: "w = e^(−age/90) × type × e^(−|ln(D/d)|)", name: "weighted average"}];
+  for (const x of p.parts.slice(0, 3))
+    rows.push({value: `${clock(x.proj)} · ${Math.round(x.share * 100)}%`, name: `${x.e.label}, ${dayShort.format(toDate(x.e.day))}`});
+  return rows;
+}
 function viewPerformance(main) {
   const D = S.data, P = D.profile, start = rangeStart(), to = D.today, days = dayRange(start, to);
   main.append(filters());
@@ -867,13 +932,24 @@ function viewPerformance(main) {
   if (showBike && v2) tiles.push(tile("VO₂max, cycling", one(v2.value), null, {text: dayShort.format(toDate(v2.day))}));
   if (showRun && thr.heartRate) tiles.push(tile("Threshold HR, running", int(thr.heartRate), "bpm"));
   if (showBike && thr.heartRateCycling) tiles.push(tile("Threshold HR, cycling", int(thr.heartRateCycling), "bpm"));
-  if (showRun) for (const [key, label] of [["r5k", "5 km"], ["r10k", "10 km"], ["rHalf", "Half marathon"], ["rFull", "Marathon"]]) {
-    const cur = latest(key), series = dayValues(start, to, key), first = series.find(v => v != null);
-    if (!cur) continue;
-    const change = first != null ? cur.value - first : 0;
-    tiles.push(tile(`Predicted ${label}`, clock(cur.value), null, first != null && change ? {text: `${change < 0 ? "▼ " : "▲ "}${clock(Math.abs(change))} over this range`, tone: deltaTone(change, false)} : null));
+  if (showRun) for (const [key, label, dist] of RACE_DISTS) {
+    const cur = latest(key), p = predictOn(to, dist);
+    if (!cur && !p) continue;
+    tiles.push(tile(`Predicted ${label}`, clock(p ? p.time : cur.value), null, {text: (p ? "Claude model · " : "") + (cur ? `Garmin ${clock(cur.value)}` : "no Garmin prediction")}));
   }
   main.append(h("div", {class: "tiles"}, tiles));
+
+  if (showRun) main.append(h("div", {class: "grid g2 section"}, RACE_DISTS.map(([key, label, dist]) => {
+    const garmin = dayValues(start, to, key), preds = days.map(d => predictOn(d, dist)), model = preds.map(p => p ? p.time : null);
+    return card({title: `Predicted ${label}`, sub: "Claude's model from your race-like efforts and key sessions, against Garmin's prediction. Faster is higher; hover for the formula",
+      legend: [seriesKey("var(--accent)", "Claude model"), seriesKey("var(--mark-muted)", "Garmin")],
+      table: () => ({cols: ["Date", {name: "Claude model", n: 1}, {name: "Garmin", n: 1}],
+        rows: days.map((d, i) => [fmtDay(d), model[i] == null ? null : clock(model[i]), garmin[i] == null ? null : clock(garmin[i])]).filter(r => r[1] || r[2]).reverse()}),
+      draw: (el, W) => lineChart(el, W, {x: days, h: 220, invert: true, ml: 52, mr: 60, aria: `Predicted ${label} over time`, yFmt: clock,
+        series: [{name: "Garmin", color: "var(--mark-muted)", values: garmin, span: true, label: true, fmt: clock},
+                 {name: "Claude model", color: "var(--accent)", values: model, span: true, label: true, fmt: clock}],
+        tipExtra: i => modelTip(preds[i])})});
+  })));
 
   if (showBike) {
     const xTicks = [1, 5, 30, 60, 300, 1200, 3600].map(v => ({v, label: secsLabel(v)}));

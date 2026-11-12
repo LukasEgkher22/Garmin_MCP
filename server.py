@@ -5,7 +5,10 @@ saved by login.py; it never sees your password.
 """
 
 import datetime as dt
+import io
 import os
+import time
+import zipfile
 from pathlib import Path
 from typing import Any, Literal
 
@@ -14,7 +17,10 @@ from garminconnect import workout as w
 from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, Field
 
+import fitmerge
+
 TOKEN_DIR = Path(os.getenv("GARMINTOKENS", Path.home() / ".garminconnect"))
+FIT_DIR = Path(os.getenv("GARMIN_FIT_DIR", Path.home() / "Documents" / "Garmin FIT"))
 MAX_LIST = 40  # long time series get cut so answers stay readable
 
 mcp = MCPServer(
@@ -27,7 +33,10 @@ mcp = MCPServer(
         "planned sessions on the user's Garmin calendar. Workout tools: run, bike "
         "and swim; steps end after 'minutes'/'seconds' or 'meters' (neither = lap button); "
         "wrap repeats as {\"repeat\": n, \"steps\": [...]}; give 'date' to put "
-        "the workout on the Garmin calendar so it syncs to the watch."
+        "the workout on the Garmin calendar so it syncs to the watch. "
+        "To join activities that were split by accident, use combine_activities; "
+        "it never deletes anything. delete_activity is permanent: always ask the "
+        "user and wait for an explicit yes before calling it."
     ),
 )
 
@@ -389,6 +398,172 @@ def delete_workout(workout_id: str) -> dict:
 def cycling_ftp() -> dict:
     """The user's current cycling FTP from Garmin (watts)."""
     return safe(api().get_cycling_ftp)
+
+
+# ------------------------------------------------------------- FIT file tools
+#
+# Files live in FIT_DIR on this PC (default Documents\Garmin FIT) and never
+# leave it except to go to Garmin.
+
+def _fit_path(p: str) -> Path:
+    """Relative names are inside FIT_DIR; '.fit' is added if missing."""
+    path = Path(p)
+    if not path.is_absolute():
+        path = FIT_DIR / path
+    return path if path.suffix.lower() == ".fit" else path.with_suffix(".fit")
+
+
+def _download_fit(activity_id: str) -> Path:
+    data = api().download_activity(activity_id, dl_fmt=Garmin.ActivityDownloadFormat.ORIGINAL)
+    FIT_DIR.mkdir(parents=True, exist_ok=True)
+    out = FIT_DIR / f"{activity_id}_ACTIVITY.fit"
+    if data[:2] == b"PK":  # Garmin sends the original as a zip
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            fits = [n for n in z.namelist() if n.lower().endswith(".fit")]
+            if not fits:
+                raise RuntimeError(f"Activity {activity_id} has no original .fit file "
+                                   "(it was probably uploaded as GPX/TCX or entered manually)")
+            data = z.read(fits[0])
+    out.write_bytes(data)
+    return out
+
+
+def _start_utc(path: Path) -> dt.datetime:
+    f = fitmerge.read_fit(path)
+    s = f.of(fitmerge.SESSION)
+    ts = s[0].get(2) if s else None
+    if ts is None:
+        ts = next(m.get(fitmerge.TIMESTAMP) for m in f.messages if m.num == fitmerge.RECORD)
+    return dt.datetime.fromtimestamp(ts + fitmerge.FIT_EPOCH, dt.timezone.utc)
+
+
+def _upload(path: Path, exclude: set[str] = frozenset()) -> dict:
+    """Upload a .fit and find the new activity id (Garmin may process it async)."""
+    g = api()
+    resp = g.upload_activity(str(path))
+    body = resp.json() if hasattr(resp, "json") else resp
+    result = (body or {}).get("detailedImportResult", body) or {}
+    failures = result.get("failures") or []
+    if failures:
+        msgs = [m.get("content") for f in failures for m in (f.get("messages") or [])]
+        return {"uploaded": False, "error": "; ".join(filter(None, msgs)) or str(failures)}
+    ids = [str(s["internalId"]) for s in result.get("successes") or [] if s.get("internalId")]
+    if not ids:  # not processed yet: look it up by start time
+        start = _start_utc(path)
+        day = start.date()
+        for _ in range(10):
+            time.sleep(3)
+            acts = g.get_activities_by_date((day - dt.timedelta(days=1)).isoformat(),
+                                            (day + dt.timedelta(days=1)).isoformat())
+            for a in acts:
+                gmt = a.get("startTimeGMT")
+                if gmt and str(a.get("activityId")) not in exclude:
+                    t = dt.datetime.fromisoformat(gmt).replace(tzinfo=dt.timezone.utc)
+                    if abs((t - start).total_seconds()) < 5:
+                        ids.append(str(a["activityId"]))
+            if ids:
+                break
+    out = {"uploaded": True, "activity_id": ids[0] if ids else None}
+    if not ids:
+        out["note"] = "Garmin accepted the file but is still processing it; check list_activities in a minute."
+    return out
+
+
+@mcp.tool()
+def download_fit(activity_id: str) -> dict:
+    """Save an activity's original .fit file to the local FIT folder on this PC.
+    Returns the file path (use it with merge_fit / upload_fit)."""
+    try:
+        p = _download_fit(activity_id)
+        return {"path": str(p), "kb": round(p.stat().st_size / 1024)}
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+@mcp.tool()
+def merge_fit(paths: list[str], out_path: str | None = None) -> dict:
+    """Merge 2+ local .fit activity files (same sport, not overlapping in time) into
+    one activity. The time between them becomes a pause; all laps, GPS and sensor
+    data are kept and the totals are recalculated. Relative paths are in the FIT
+    folder. Does not upload anything."""
+    try:
+        return _merge([_fit_path(p) for p in paths], _fit_path(out_path) if out_path else None)
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+def _merge(files: list[Path], out: Path | None = None) -> dict:
+    out = out or FIT_DIR / ("merged_" + "_".join(f.stem.replace("_ACTIVITY", "") for f in files) + ".fit")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    return fitmerge.merge_fit_files(files, out)
+
+
+def _rename(activity_id: str, name: str) -> bool:
+    try:
+        api().set_activity_name(activity_id, name)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+@mcp.tool()
+def upload_fit(path: str, name: str | None = None) -> dict:
+    """Upload a local .fit file to Garmin Connect as a new activity (it then syncs to
+    Strava etc. like a watch upload). Optional name sets the activity title."""
+    try:
+        res = _upload(_fit_path(path))
+        if name and res.get("activity_id"):
+            res["renamed"] = _rename(res["activity_id"], name)
+        return res
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+@mcp.tool()
+def delete_activity(activity_id: str) -> dict:
+    """PERMANENTLY delete an activity from Garmin Connect. Only call this after the
+    user has explicitly said yes to deleting this specific activity in the chat.
+    A backup of the original .fit is saved to the FIT folder first; if the backup
+    fails, nothing is deleted. Does not delete it on Strava."""
+    try:
+        backup = FIT_DIR / f"{activity_id}_ACTIVITY.fit"
+        if not backup.exists():
+            backup = _download_fit(activity_id)
+    except Exception as e:  # noqa: BLE001
+        return {"deleted": False, "error": f"Backup failed, nothing deleted: {type(e).__name__}: {e}"}
+    res = safe(api().delete_activity, activity_id)
+    if isinstance(res, dict) and "error" in res:
+        return {"deleted": False, "backup": str(backup), **res}
+    return {"deleted": True, "activity_id": activity_id, "backup": str(backup)}
+
+
+@mcp.tool()
+def combine_activities(activity_ids: list[str], name: str | None = None) -> dict:
+    """Join 2+ Garmin activities that were split by accident into one: downloads the
+    originals, merges them (gaps become pauses, laps kept) and uploads the result.
+    The originals are NOT deleted: afterwards, ask the user whether to delete them
+    with delete_activity. name = title for the new activity (default: the first
+    original's title)."""
+    try:
+        g = api()
+        paths = [_download_fit(a) for a in activity_ids]
+        merged = _merge(paths)
+        if name is None:
+            starts = sorted(zip((_start_utc(p) for p in paths), activity_ids))
+            name = (safe(g.get_activity, starts[0][1]) or {}).get("activityName")
+        up = _upload(Path(merged["out_path"]), exclude=set(map(str, activity_ids)))
+        if name and up.get("activity_id"):
+            up["renamed"] = _rename(up["activity_id"], name)
+        return {
+            "merged": merged,
+            "upload": up,
+            "name": name,
+            "originals_still_in_garmin": activity_ids,
+            "next": "Ask the user before deleting the originals with delete_activity. "
+                    "On Strava the originals must be deleted by hand (Strava's API can't delete).",
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {e}"}
 
 
 if __name__ == "__main__":
