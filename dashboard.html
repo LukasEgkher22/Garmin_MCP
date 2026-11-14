@@ -200,10 +200,10 @@ const SPORTS = {
   other: {label: "Other", color: "var(--other)"},
 };
 const SPORT_KEYS = Object.keys(SPORTS);
-const RANGES = {"6w": 42, "3m": 91, "6m": 182, "1y": 365, "2y": 730, "All": null};
+const RANGES = {"1w": 7, "6w": 42, "3m": 91, "6m": 182, "1y": 365, "2y": 730, "All": null};
 const TABS = [["fitness", "Fitness"], ["training", "Training"], ["recovery", "Recovery"],
               ["performance", "Performance"], ["calendar", "Calendar"], ["activities", "Activities"]];
-const S = {range: localStorage.getItem("range") || "6m", sport: "all", search: "", sort: ["day", -1], shown: 100, calMonth: null, data: null};
+const S = {range: "6w", sport: "all", search: "", sort: ["day", -1], shown: 100, calMonth: null, data: null};
 const FITNESS_DAYS = 42, FATIGUE_DAYS = 7;
 
 function sportOf(type) {
@@ -242,9 +242,11 @@ function prepare(raw) {
 }
 const inSport = a => S.sport === "all" || a.sport === S.sport;
 const useMonths = () => RANGES[S.range] == null || RANGES[S.range] > 200;
+const useDays = () => RANGES[S.range] != null && RANGES[S.range] <= 14;
 function rangeStart() {
   const D = S.data, span = RANGES[S.range];
   if (span == null) return D.acts.length ? monthStart(D.acts[0].day) : D.today - 365;
+  if (useDays()) return D.today - span + 1;
   return useMonths() ? monthStart(D.today - span) : monday(D.today - span);
 }
 const inRange = a => a.day >= rangeStart() && a.day <= S.data.today;
@@ -327,6 +329,11 @@ function niceTicks(lo, hi, count = 4) {
 function dateTicks(from, to, width) {
   const span = to - from, out = [];
   const maxTicks = Math.max(2, Math.floor(width / 62));
+  if (span <= 14) {
+    const step = Math.ceil((span + 1) / maxTicks);
+    for (let d = from; d <= to; d += step) out.push({v: d, label: dayShort.format(toDate(d))});
+    return out;
+  }
   if (span <= 120) {
     let step = 7; while (span / step > maxTicks) step += 7;
     for (let d = monday(from) + 7; d <= to; d += step) out.push({v: d, label: dayShort.format(toDate(d))});
@@ -575,15 +582,17 @@ const seriesKey = (x, name, rect) => ({name, color: x, rect});
 function buckets() {
   const start = rangeStart(), to = S.data.today, months = useMonths(), out = [];
   if (months) { let d = start; while (d <= to) { out.push(d); d = dn(iso(d + 32).slice(0, 7) + "-01"); } }
+  else if (useDays()) for (let d = start; d <= to; d++) out.push(d);
   else for (let d = monday(start); d <= to; d += 7) out.push(d);
   return out;
 }
 const bucketOf = (d, list) => { let i = list.length - 1; while (i > 0 && list[i] > d) i--; return i; };
 function bucketTitle(d) {
   if (useMonths()) return monYearFmt.format(toDate(d));
+  if (useDays()) return fmtDayW(d);
   return `Week of ${fmtDay(d)}`;
 }
-const bucketWord = () => useMonths() ? "month" : "week";
+const bucketWord = () => useMonths() ? "month" : useDays() ? "day" : "week";
 function bucketSeries(acts, valueOf, sports = SPORT_KEYS) {
   const list = buckets();
   return {x: list, series: sports.filter(k => S.sport === "all" || S.sport === k).map(k => {
@@ -594,7 +603,7 @@ function bucketSeries(acts, valueOf, sports = SPORT_KEYS) {
 }
 function tableFromBuckets(b, fmt) {
   return () => ({
-    cols: [bucketWord() === "month" ? "Month" : "Week of", ...b.series.map(x => ({name: x.name, n: 1}))],
+    cols: [{month: "Month", day: "Day", week: "Week of"}[bucketWord()], ...b.series.map(x => ({name: x.name, n: 1}))],
     rows: b.x.map((d, i) => [useMonths() ? monYearFmt.format(toDate(d)) : fmtDay(d), ...b.series.map(x => fmt(x.values[i]))]).reverse(),
   });
 }
@@ -602,7 +611,7 @@ function filters(opts = {}) {
   const seg = (items, cur, set) => h("div", {class: "seg", role: "group"}, items.map(([k, label, color]) =>
     h("button", {type: "button", "aria-pressed": String(k === cur), onclick: () => set(k)}, color ? h("span", {class: "dot", style: `background:${color}`}) : null, label)));
   return h("div", {class: "filters"},
-    seg(Object.keys(RANGES).map(k => [k, k]), S.range, k => { S.range = k; localStorage.setItem("range", k); render(); }),
+    seg(Object.keys(RANGES).map(k => [k, k]), S.range, k => { S.range = k; render(); }),
     opts.sport === false ? null : seg([["all", "All"], ...SPORT_KEYS.map(k => [k, SPORTS[k].label, SPORTS[k].color])], S.sport, k => { S.sport = k; render(); }),
     opts.search ? h("input", {class: "search", type: "search", placeholder: "Search name or type", value: S.search, "aria-label": "Search activities",
       oninput: e => { S.search = e.target.value; S.shown = 100; const sel = e.target.selectionStart; render(); const n = document.querySelector(".search"); n.focus(); n.setSelectionRange(sel, sel); }}) : null);
@@ -935,7 +944,7 @@ function viewPerformance(main) {
   if (showRun) for (const [key, label, dist] of RACE_DISTS) {
     const cur = latest(key), p = predictOn(to, dist);
     if (!cur && !p) continue;
-    tiles.push(tile(`Predicted ${label}`, clock(p ? p.time : cur.value), null, {text: (p ? "Claude model · " : "") + (cur ? `Garmin ${clock(cur.value)}` : "no Garmin prediction")}));
+    tiles.push(tile(`Predicted ${label}`, clock(p ? p.time : cur.value), null, {text: [p ? ["Claude model", h("br")] : null, cur ? `Garmin: ${clock(cur.value)}` : "No Garmin prediction"]}));
   }
   main.append(h("div", {class: "tiles"}, tiles));
 
@@ -966,7 +975,10 @@ function viewPerformance(main) {
           series: [{name: "All time", color: "var(--mark-muted)", values: allTime.map(x => x && x.value), tipFmt: v => `${int(v)} W`}, {name: "This range", color: "var(--bike)", values: curve.map(x => x && x.value), tipFmt: v => `${int(v)} W`}]})}),
       card({title: "Best 20-min power by month", sub: "Watts. Your hardest effort each month; months without a ride with power stay empty",
         table: () => ({cols: ["Month", {name: "Best 20 min (W)", n: 1}], rows: monthly.map(d => [monYearFmt.format(toDate(d)), best.get(d) ? int(best.get(d)) : null]).reverse()}),
-        draw: (el, W) => stackChart(el, W, {x: monthly, h: 260, aria: "Best 20-minute power by month", bandTitle: d => monYearFmt.format(toDate(d)), tipFmt: v => `${int(v)} W`, noTotal: true,
+        draw: (el, W) => stackChart(el, W, {x: monthly, h: 260, aria: "Best 20-minute power by month",
+          // One bar per month, so label months (thinned to fit) rather than the range's weeks or days.
+          xTicks: monthly.filter((_, i, all) => i % Math.ceil(all.length / Math.max(2, Math.floor((W - 50) / 48))) === 0)
+            .map(d => ({v: d, label: iso(d).slice(5, 7) === "01" || monthly.length <= 3 ? monYearFmt.format(toDate(d)) : monFmt.format(toDate(d))})), bandTitle: d => monYearFmt.format(toDate(d)), tipFmt: v => `${int(v)} W`, noTotal: true,
           series: [{name: "Best 20 min", color: "var(--bike)", values: monthly.map(d => best.get(d) || 0)}]})})));
   }
   // Efficiency: output per heartbeat, on steady sessions of 20+ minutes.
@@ -1025,9 +1037,9 @@ function viewCalendar(main) {
     legend: [{name: "Rest", color: "var(--wash)", rect: true}, ...ramp.map((c, i) => ({name: i < 4 ? `up to ${int(cuts[i])}` : `over ${int(cuts[3])}`, color: c, rect: true}))],
     table: () => { const rows = []; for (let w = monday(to); w >= from; w -= 7) rows.push([fmtDay(w), int(dayRange(w, w + 6).reduce((t, d) => t + (load.get(d) || 0), 0))]); return {cols: ["Week of", {name: "Load", n: 1}], rows}; },
     draw: (el, W) => {
-      const weeks = Math.ceil((to - from + 1) / 7), left = 28, cell = Math.max(8, Math.min(16, Math.floor((W - left) / weeks) - 2)), step = cell + 2;
+      const weeks = Math.ceil((to - from + 1) / 7), left = 28, cell = Math.max(10, Math.min(16, Math.floor((W - left) / weeks) - 2)), step = cell + 2;
       const svg = s("svg", {width: W, height: step * 7 + 20, role: "img", "aria-label": "Daily training load, last 12 months"});
-      ["Mon", "", "Wed", "", "Fri", "", "Sun"].forEach((t, i) => t && svg.append(s("text", {x: 0, y: 18 + i * step + cell - 2}, t)));
+      ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].forEach((t, i) => svg.append(s("text", {x: 0, y: 18 + i * step + cell - 2}, t)));
       let lastMonth = "";
       const cells = [];
       for (let d = from; d <= to; d++) {
@@ -1056,7 +1068,8 @@ function viewCalendar(main) {
     h("strong", {style: "font-size:16px"}, monYearFmt.format(toDate(first))),
     legend(SPORT_KEYS.map(k => seriesKey(SPORTS[k].color, SPORTS[k].label, true)))));
   const start = monday(first), end = monday(next - 1) + 6;
-  const planned = (D.profile.planned || []).filter(p => !p.done && p.day);
+  // Planned sessions from before today are hidden: done ones show as the activity, missed ones are history.
+  const planned = (D.profile.planned || []).filter(p => !p.done && p.day && dn(p.day) >= D.today);
   const cal = h("div", {class: "cal"}, ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(t => h("div", {class: "dow"}, t)), h("div", {class: "dow"}, "Week"));
   for (let w = start; w <= end; w += 7) {
     let wkSecs = 0, wkLoad = 0, wkDist = 0;

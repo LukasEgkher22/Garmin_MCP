@@ -41,6 +41,16 @@ Windows, Python 3.13, venv in `.venv`.
 
 ## History
 
+### 2026-11-14: dashboard tweaks (uncommitted)
+- New `1w` range (last 7 days, daily buckets and daily axis ticks via `useDays()`).
+- The range now always starts at `6w` on page load (no longer remembered in localStorage).
+- Calendar: unfinished planned workouts from before today are hidden.
+- 12-month heatmap labels every weekday (min cell size raised from 8 to 10 px so labels fit).
+- Performance prediction tiles: "Claude model" and "Garmin: <time>" on separate lines.
+- "Best 20-min power by month": x axis now labels months itself (it used the range's weekly/daily
+  ticks, which stacked several labels on one bar for short ranges).
+- Prediction formula unchanged on purpose; the user runs a test next week to check it.
+
 ### 2026-11-12: activity merge tools (uncommitted)
 Goal: join activities that were split by accident (e.g. a run stopped and
 restarted) into one Garmin activity that also syncs to Strava.
