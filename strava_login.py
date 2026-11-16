@@ -5,8 +5,9 @@ https://www.strava.com/settings/api with "Authorization Callback Domain" = local
 
 Then run:  python strava_login.py
 It asks for the app's Client ID and Client Secret, opens Strava in your
-browser so you can approve upload access, and saves tokens to
-~/.garminconnect/strava.json. Your Strava password is never seen or stored.
+browser so you can approve upload access, and saves tokens to strava.json in
+the GARMINTOKENS folder (default ~/.garminconnect). Your Strava password is
+never seen or stored.
 """
 
 import getpass

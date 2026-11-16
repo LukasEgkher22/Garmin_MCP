@@ -1,7 +1,8 @@
 """Minimal Strava API client (standard library only): token refresh + upload.
 
-Tokens live in ~/.garminconnect/strava.json (env STRAVA_TOKENS), next to the
-Garmin tokens. Create them once with `python strava_login.py`.
+Tokens live in strava.json next to the Garmin tokens (the GARMINTOKENS folder,
+default ~/.garminconnect; or set STRAVA_TOKENS to a file path). Create them
+once with `python strava_login.py`.
 Strava's API cannot delete activities; this module never tries.
 """
 
@@ -16,7 +17,8 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-TOKEN_FILE = Path(os.getenv("STRAVA_TOKENS", Path.home() / ".garminconnect" / "strava.json"))
+TOKEN_FILE = Path(os.getenv("STRAVA_TOKENS")
+                  or Path(os.getenv("GARMINTOKENS", Path.home() / ".garminconnect")) / "strava.json")
 API = "https://www.strava.com/api/v3"
 OAUTH = "https://www.strava.com/oauth"
 SCOPE = "activity:write,read"

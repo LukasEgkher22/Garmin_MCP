@@ -1,0 +1,72 @@
+# Garmin -> Strava sync on GitHub's servers (no PC needed). See README.
+#
+# Secrets (repo -> Settings -> Secrets and variables -> Actions):
+#   GARMIN_TOKENS, STRAVA_TOKENS   printed by export_secrets.py
+# The tokens renew themselves; the renewed ones, the list of uploaded
+# activities and the log are kept in this repo's private Actions cache.
+# The secrets are only used when that cache is empty (first run, or after a
+# long pause).
+
+name: Strava sync
+
+on:
+  schedule:
+    - cron: "17 * * * *"  # every hour at :17 (GitHub may start it a few minutes late)
+  workflow_dispatch:       # "Run workflow" button in the Actions tab
+
+concurrency:
+  group: strava-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GARMIN_FIT_DIR: ${{ runner.temp }}/fit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Restore tokens and sync state
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.garminconnect
+          key: sync-state-${{ github.run_id }}
+          restore-keys: sync-state-
+
+      - name: Seed tokens from secrets (first run only)
+        env:
+          SEED_GARMIN: ${{ secrets.GARMIN_TOKENS }}
+          SEED_STRAVA: ${{ secrets.STRAVA_TOKENS }}
+        run: |
+          mkdir -p ~/.garminconnect && chmod 700 ~/.garminconnect
+          if [ ! -s ~/.garminconnect/garmin_tokens.json ]; then
+            [ -n "$SEED_GARMIN" ] || { echo "Secret GARMIN_TOKENS is missing"; exit 1; }
+            printf '%s' "$SEED_GARMIN" > ~/.garminconnect/garmin_tokens.json
+          fi
+          if [ ! -s ~/.garminconnect/strava.json ]; then
+            [ -n "$SEED_STRAVA" ] || { echo "Secret STRAVA_TOKENS is missing"; exit 1; }
+            printf '%s' "$SEED_STRAVA" > ~/.garminconnect/strava.json
+          fi
+          chmod 600 ~/.garminconnect/*.json
+
+      - name: Sync
+        run: python sync_strava.py
+
+      - name: Save tokens and sync state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.garminconnect
+          key: sync-state-${{ github.run_id }}-${{ github.run_attempt }}

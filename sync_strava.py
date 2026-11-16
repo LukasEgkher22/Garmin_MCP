@@ -1,4 +1,5 @@
-"""Garmin -> Strava sync, meant to run every 30 min from Windows Task Scheduler.
+"""Garmin -> Strava sync. Runs on GitHub Actions every hour
+(.github/workflows/strava-sync.yml), or on the PC with Windows Task Scheduler.
 
 For every new Garmin activity it downloads the original .fit and uploads it to
 Strava. Pool swims are converted first (swimfit.py): one flat block per
@@ -160,6 +161,7 @@ def main() -> None:
     args = p.parse_args()
 
     STATE_DIR.mkdir(parents=True, exist_ok=True)
+    _trim_log()
     handlers: list[logging.Handler] = [logging.FileHandler(LOG_FILE, encoding="utf-8")]
     if sys.stdout:  # pythonw (no console window) has no stdout
         handlers.append(logging.StreamHandler(sys.stdout))
@@ -167,6 +169,7 @@ def main() -> None:
     if _locked():
         log.info("Another sync is still running; skipping this one.")
         return
+    server = None
     try:
         import server  # Garmin login + download helpers
         result = run(server.api(), server._download_fit, server.FIT_DIR,
@@ -178,6 +181,18 @@ def main() -> None:
         raise
     finally:
         LOCK_FILE.unlink(missing_ok=True)
+        if server is not None and server._api is not None:
+            try:  # keep refreshed Garmin tokens (matters on GitHub Actions)
+                server._api.client.dump(str(server.TOKEN_DIR))
+            except Exception:  # noqa: BLE001
+                log.warning("Could not save refreshed Garmin tokens", exc_info=True)
+
+
+def _trim_log(max_bytes: int = 500_000) -> None:
+    """Keep the log small (it travels in the Actions cache)."""
+    if LOG_FILE.exists() and LOG_FILE.stat().st_size > max_bytes:
+        lines = LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+        LOG_FILE.write_text("\n".join(lines[-2000:]) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

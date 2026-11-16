@@ -48,25 +48,53 @@ segment at that block's average pace, with the rests as pauses.
 - The first run only remembers the current time, so older activities are not
   uploaded again. Use `--since YYYY-MM-DD` to upload older ones on purpose.
 
-**One-time setup**
-1. **Create a Strava API app** at <https://www.strava.com/settings/api>.
-   Any name/website works (e.g. "garmin-mcp", `http://localhost`);
-   set **Authorization Callback Domain** to `localhost`.
-2. **Log in to Strava once** (VS Code terminal, in this folder):
+It runs either on **GitHub Actions** (every hour, no PC needed, recommended)
+or on your PC with **Task Scheduler**. Use one of them, not both.
+
+**Step 1: Strava API app (both options)**
+Create one at <https://www.strava.com/settings/api>. Any name/website works
+(e.g. "garmin-mcp", `http://localhost`); set **Authorization Callback Domain**
+to `localhost`.
+
+**Option A: GitHub Actions (runs without your PC)**
+The workflow is `.github/workflows/strava-sync.yml`. GitHub gets its *own*
+Garmin and Strava login: the tokens renew themselves, and a login shared with
+your PC would keep breaking one side.
+1. In PowerShell, in this folder, log in for GitHub (tokens go to a separate folder):
    ```powershell
+   $env:GARMINTOKENS = "$HOME\.garminconnect-github"
+   .venv\Scripts\python.exe login.py
    .venv\Scripts\python.exe strava_login.py
+   .venv\Scripts\python.exe export_secrets.py
    ```
-   Paste the app's Client ID and Client Secret, then click *Authorize* in the
-   browser. Tokens go to `C:\Users\<you>\.garminconnect\strava.json`.
-   Treat that file like a password.
-3. **Test it:**
-   ```powershell
-   .venv\Scripts\python.exe sync_strava.py            # first run: just remembers "now"
-   .venv\Scripts\python.exe sync_strava.py --dry-run  # shows what it would upload
-   ```
-4. **Turn off Garmin's own Strava connection** (Garmin Connect → Settings →
+   Then close that terminal (so `GARMINTOKENS` is back to normal).
+2. On GitHub: repo → **Settings → Secrets and variables → Actions → New repository
+   secret**. Create `GARMIN_TOKENS` and `STRAVA_TOKENS` with the values
+   `export_secrets.py` printed. Keep the repo **private**.
+3. **Turn off Garmin's own Strava connection** (Garmin Connect → Settings →
    Connected Apps → Strava → Disconnect). Otherwise Strava gets everything twice.
-5. **Run it every 30 minutes** with Task Scheduler (PowerShell, use YOUR path):
+4. Repo → **Actions → Strava sync → Run workflow** once. The first run only
+   remembers "now", so older activities aren't uploaded. After that it runs every
+   hour by itself (GitHub sometimes starts it a few minutes late).
+
+How it keeps state: the renewed tokens, the list of uploaded activities and the
+log live in the repo's private **Actions cache** (Actions → Caches). The secrets
+are only used when that cache is empty. Each run takes about 1 minute, so hourly
+runs use roughly 750 of the 2,000 free Actions minutes a month for private repos.
+If you make it every 30 min (`cron: "*/30 * * * *"`), that's about 1,500.
+
+If a run fails with a Garmin or Strava login error: redo step 1 and 2 (new
+secrets), then delete the `sync-state-…` entries under Actions → Caches so the
+next run uses the new secrets. Garmin sometimes distrusts logins from cloud
+servers; if that keeps happening, use option B.
+
+**Option B: on your PC with Task Scheduler**
+1. Log in to Strava once: `.venv\Scripts\python.exe strava_login.py`
+   (tokens go to `C:\Users\<you>\.garminconnect\strava.json`; treat it like a password).
+2. Test: `.venv\Scripts\python.exe sync_strava.py` (first run: just remembers
+   "now"), then `... sync_strava.py --dry-run` to see what it would upload.
+3. Turn off Garmin's own Strava connection (as in option A).
+4. Run it every 30 minutes (PowerShell, use YOUR path):
    ```powershell
    $dir = "C:\Users\<you>\code\garmin-mcp"
    $action = New-ScheduledTaskAction -Execute "$dir\.venv\Scripts\pythonw.exe" -Argument "sync_strava.py" -WorkingDirectory $dir
@@ -75,19 +103,19 @@ segment at that block's average pace, with the rests as pauses.
    Register-ScheduledTask -TaskName "Garmin to Strava" -Action $action -Trigger $trigger -Settings $settings
    ```
    `-WakeToRun` wakes a sleeping PC; `-StartWhenAvailable` catches up runs
-   missed while it was off. To also run while you're logged out, open Task
-   Scheduler → "Garmin to Strava" → Properties → "Run whether user is logged on or not".
+   missed while it was off. To also run while you're logged out: Task Scheduler →
+   "Garmin to Strava" → Properties → "Run whether user is logged on or not".
 
 **Everyday use and problems**
-- Log: `C:\Users\<you>\.garminconnect\strava_sync.log`. State (what was
-  uploaded): `strava_sync.json` in the same folder.
-- Upload one activity by hand: `python sync_strava.py --activity <garmin id>`,
-  or ask Claude (`strava_upload`).
+- Log and state: `strava_sync.log` / `strava_sync.json` in the token folder (PC), or
+  the run's output in the Actions tab (GitHub).
+- Upload one activity by hand: ask Claude (`strava_upload`) or run
+  `python sync_strava.py --activity <garmin id>`. Claude's Strava tools use this
+  PC's Strava login (run `strava_login.py` once without `GARMINTOKENS` set).
 - "duplicate": Strava already has that activity (e.g. it came from the old
   Garmin connection). Strava's API can't delete or replace it; delete it on
   Strava, then upload it again with `--activity`.
 - Failed uploads are retried on the next runs (up to 5 times).
-- Strava login errors: run `strava_login.py` again.
 
 ### Joining activities that were split by accident
 Ask Claude something like *"combine my two runs from Sunday into one"*. It finds

@@ -15,7 +15,9 @@ Windows, Python 3.13, venv in `.venv`.
 | `swimfit.py` | Pool swim → "interval" FIT for Strava (built on fitmerge) |
 | `strava.py` | Strava API client, stdlib only: token refresh, upload, upload status |
 | `strava_login.py` | One-time Strava OAuth; tokens in `~/.garminconnect/strava.json` |
-| `sync_strava.py` | Garmin → Strava sync (Task Scheduler every 30 min); state + log in `~/.garminconnect/` |
+| `sync_strava.py` | Garmin → Strava sync; state + log in the token folder (`GARMINTOKENS`, default `~/.garminconnect/`) |
+| `.github/workflows/strava-sync.yml` | Runs `sync_strava.py` hourly on GitHub Actions; tokens + state in the Actions cache |
+| `export_secrets.py` | Prints the `GARMIN_TOKENS` / `STRAVA_TOKENS` values for the GitHub secrets |
 | `login.py` | One-time Garmin login; saves tokens to `~/.garminconnect` (never the password) |
 | `dashboard.py` / `dashboard.html` | Local dashboard at `http://127.0.0.1:8765`, cache in `~/.garminconnect/dashboard_cache.sqlite` |
 | `requirements.txt` | Pinned: garminconnect 0.3.20, mcp 2.3.0, starlette, uvicorn |
@@ -66,8 +68,20 @@ fully automatic, Garmin untouched.
 - Tested offline only: swimfit output decodes with garmin-fit-sdk (25 laps, 0 lengths,
   2328 records, distance 0 → 2500 m, never decreasing), same structure as the hand-made v3;
   sync and Strava client tested with fakes. **Not yet tested against live Strava.**
-- Next: user creates the Strava API app, runs `strava_login.py`, a first `sync_strava.py`,
-  disconnects Garmin's Strava connection, registers the scheduled task (README).
+- GitHub Actions (the user's choice, so it runs without the PC): workflow
+  `strava-sync.yml` (hourly at :17 + manual button). GitHub has its own Garmin and Strava
+  login (`GARMINTOKENS=~/.garminconnect-github`, then `export_secrets.py` → repo secrets),
+  because both services renew tokens and a shared login would break one side.
+  Renewed tokens, `strava_sync.json` and the log travel in the Actions cache
+  (`sync-state-<run_id>`, restored by prefix); secrets only seed an empty cache.
+  `sync_strava.py` dumps the refreshed Garmin tokens after every run.
+  `strava.TOKEN_FILE` now follows `GARMINTOKENS` (env `STRAVA_TOKENS` still overrides).
+  Repo is private: ~750 of 2,000 free Action minutes/month at hourly runs.
+- Task Scheduler on the PC stays documented as option B.
+- garminconnect 0.3.20 stores tokens in `<tokenstore>/garmin_tokens.json`
+  (`di_token`, `di_refresh_token`, `di_client_id`).
+- Next: user creates the Strava API app, does the GitHub login + secrets, disconnects
+  Garmin's Strava connection, and runs the workflow once by hand (README option A).
 
 ### 2026-11-14: dashboard tweaks (uncommitted)
 - New `1w` range (last 7 days, daily buckets and daily axis ticks via `useDays()`).
