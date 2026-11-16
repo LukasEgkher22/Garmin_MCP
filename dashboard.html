@@ -1167,7 +1167,7 @@ function drawActivity(host, a, d) {
   const st = d.streams, color = SPORTS[a.sport].color, t = st.t || [];
   const group = [];
   const defs = [];
-  const xTicks = W => { const span = t[t.length - 1] || 1, step = [60, 120, 300, 600, 900, 1800, 3600, 7200].find(v => span / v <= Math.max(3, W / 80)) || 7200, out = []; for (let v = step; v < span; v += step) out.push({v, label: clock(v)}); return out; };
+  const xTicks = W => timeTicks(t[t.length - 1] || 1, W);
   const clean = (arr, f = v => v) => arr.map(v => v == null ? null : f(v));
   if (st.hr) defs.push({title: "Heart rate", unit: "bpm", values: clean(st.hr), fmt: v => `${int(v)} bpm`, color: "var(--accent)"});
   if (st.speed) {
@@ -1192,14 +1192,178 @@ function drawActivity(host, a, d) {
   if (zoneParts.some(p => p.value)) side.append(card({title: "Time in heart-rate zones", draw: el => el.replaceChildren(segmented(zoneParts))}));
   host.append(h("div", {class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(340px,1fr));margin-bottom:14px"},
     h("div", {style: "grid-column:span 2;min-width:0"}, left), side));
+  if (d.laps && d.laps.length && a.type === "lap_swimming" && swimSection(host, d.laps)) return;
   if (d.laps && d.laps.length) {
-    const cad = d.laps.some(l => l.averageBikeCadence) ? "averageBikeCadence" : "averageRunCadence";
+    const cad =d.laps.some(l => l.averageBikeCadence) ? "averageBikeCadence" : "averageRunCadence";
     host.append(h("section", {class: "card"}, h("div", {class: "card-head"}, h("div", null, h("h2", null, `Laps (${d.laps.length})`))),
       h("div", {class: "wrap"}, h("table", null,
         h("thead", null, h("tr", null, ["#", "Distance", "Time", "Pace / speed", "Avg HR", "Max HR", "Power", "NP", "Cadence", "Elevation"].map((c, i) => h("th", {class: i ? "n" : null}, c)))),
         h("tbody", null, d.laps.map((l, i) => h("tr", null, [i + 1, l.distance ? km(l.distance) : "–", clock(l.movingDuration || l.duration), paceFor(a.sport, l.averageSpeed), int(l.averageHR), int(l.maxHR),
           l.averagePower ? `${int(l.averagePower)} W` : "–", l.normalizedPower ? `${int(l.normalizedPower)} W` : "–", int(l[cad]), l.elevationGain ? `${int(l.elevationGain)} m` : "–"].map((v, j) => h("td", {class: j ? "n" : null}, String(v))))))))));
   }
+}
+
+/* ---------------------------------------------------------------- pool swims
+   Garmin stores a pool swim as laps: each block you swam between two rests is a
+   lap with its lengths, each rest is a 0 m lap. */
+function timeTicks(span, W) {
+  const step = [60, 120, 300, 600, 900, 1800, 3600, 7200].find(v => span / v <= Math.max(3, W / 80)) || 7200, out = [];
+  for (let v = step; v < span; v += step) out.push({v, label: clock(v)});
+  return out;
+}
+const strokeName = v => !v ? "–" : v === "IM" ? "IM" : v.charAt(0) + v.slice(1).toLowerCase().replace(/_/g, " ");
+function swimModel(laps) {
+  const at = l => l.startTimeGMT ? Date.parse(l.startTimeGMT.replace(" ", "T") + "Z") / 1000 : NaN;
+  const t0 = at(laps[0]);
+  let end = 0;
+  const all = laps.map(l => {
+    const start = isNaN(t0) || isNaN(at(l)) ? end : at(l) - t0;
+    end = Math.max(end, start + (l.duration || 0));
+    return {...l, start, span: l.duration || l.movingDuration || 0};
+  });
+  const iv = all.filter(l => l.distance > 0);
+  iv.forEach((l, i) => {
+    const next = iv[i + 1];
+    l.n = i + 1;
+    l.rest = next ? Math.max(0, next.start - l.start - l.span) : null;
+    l.time = l.movingDuration || l.duration || 0;
+    l.speed = l.averageSpeed || (l.time ? l.distance / l.time : null);
+    l.drill = l.swimStroke === "DRILL" || !l.totalNumberOfStrokes;
+    l.lengths = l.lengths || [];
+  });
+  return {iv, end};
+}
+const swimRows = l => [
+  {value: paceFor("swim", l.speed), name: "pace"},
+  {value: clock(l.time), name: "time"},
+  l.averageSWOLF ? {value: int(l.averageSWOLF), name: "SWOLF"} : null,
+  l.averageStrokes ? {value: one(l.averageStrokes), name: "strokes / length"} : null,
+  l.averageHR ? {value: int(l.averageHR), name: "avg HR"} : null,
+  l.rest != null ? {value: clock(l.rest), name: "rest after"} : null,
+].filter(Boolean);
+const swimFill = drill => drill ? "var(--mark-muted)" : "var(--swim)";
+const topRounded = (x, y, w, ht) => { const r = Math.min(4, w / 2, ht); return `M${x} ${y + ht}V${y + r}Q${x} ${y} ${x + r} ${y}H${x + w - r}Q${x + w} ${y} ${x + w} ${y + r}V${y + ht}Z`; };
+
+/* One bar per interval, as wide as it lasted; gaps are the rests. Taller = faster. */
+function intervalChart(el, W, iv, end) {
+  const H = 190, m = {l: 50, r: 12, t: 18, b: 22};
+  const paces = iv.filter(l => l.speed).map(l => 100 / l.speed);
+  if (!paces.length) { el.replaceChildren(h("div", {class: "empty"}, "No pace data for this swim")); return; }
+  const lo = Math.min(...paces), hi = Math.max(...paces);
+  const step = [5, 10, 15, 20, 30, 60, 120].find(v => (hi - lo) / v <= 4) || 120;
+  const top = Math.floor(lo / step) * step, bottom = Math.ceil(hi / step) * step + step;
+  const Y = p => m.t + (Math.max(top, Math.min(bottom, p)) - top) / (bottom - top) * (H - m.t - m.b);
+  const X = v => m.l + v / (end || 1) * (W - m.l - m.r);
+  const svg = s("svg", {width: W, height: H, role: "img", "aria-label": "Pace per interval"});
+  for (let p = top; p <= bottom; p += step) {
+    svg.append(s("line", {x1: m.l, x2: W - m.r, y1: Y(p), y2: Y(p), stroke: p === bottom ? "var(--axis)" : "var(--grid)"}));
+    svg.append(s("text", {x: m.l - 6, y: Y(p) + 4, "text-anchor": "end"}, clock(p)));
+  }
+  for (const t of timeTicks(end, W - m.l - m.r)) svg.append(s("text", {x: X(t.v), y: H - 6, "text-anchor": "middle"}, t.label));
+  const hl = s("rect", {y: m.t - 14, height: H - m.b - m.t + 14, fill: "var(--wash)", visibility: "hidden", rx: 3});
+  svg.append(hl);
+  const geo = iv.map(l => {
+    const x = X(l.start) + 1, w = Math.max(2, X(l.start + l.span) - X(l.start) - 2);
+    if (!l.speed) return {x, w};
+    const y = Y(100 / l.speed), ht = Y(bottom) - y;
+    svg.append(s("path", {fill: swimFill(l.drill), d: topRounded(x, y, w, ht)}));
+    if (w >= 24) svg.append(s("text", {x: x + w / 2, y: y - 5, "text-anchor": "middle"}, int(l.distance)));
+    return {x, w};
+  });
+  bindHover(svg, iv.length, e => {
+    const px = e.clientX - svg.getBoundingClientRect().left;
+    let best = null, dist = Infinity;
+    geo.forEach((g, i) => { const d = px < g.x ? g.x - px : px > g.x + g.w ? px - g.x - g.w : 0; if (d < dist) { dist = d; best = i; } });
+    return best;
+  }, (i, x, y) => {
+    const l = iv[i];
+    hl.setAttribute("x", geo[i].x - 2); hl.setAttribute("width", geo[i].w + 4); hl.setAttribute("visibility", "visible");
+    showTip(`Interval ${l.n} · ${int(l.distance)} m ${strokeName(l.swimStroke).toLowerCase()}`, swimRows(l), x, y);
+  }, () => { hl.setAttribute("visibility", "hidden"); hideTip(); });
+  el.replaceChildren(svg);
+}
+
+const LENGTH_METRICS = {
+  strokes: {label: "Strokes", value: x => x.strokes || null, fmt: int},
+  swolf: {label: "SWOLF", value: x => x.swolf || null, fmt: int},
+  time: {label: "Time", value: x => x.duration || null, fmt: v => clock(v), yFmt: v => clock(v)},
+};
+/* One bar per length, grouped by interval with a gap between intervals. */
+function lengthChart(el, W, iv, key) {
+  const metric = LENGTH_METRICS[key], groups = iv.filter(l => l.lengths.length);
+  if (!groups.length) { el.replaceChildren(h("div", {class: "empty"}, "Garmin has no per-length data for this swim.")); return; }
+  const H = 170, m = {l: 40, r: 10, t: 10, b: 22};
+  const items = [];
+  let slot = 0;
+  groups.forEach((l, gi) => { if (gi) slot += 1; l.lengths.forEach((x, j) => items.push({...x, slot: slot++, n: l.n, j: j + 1, drill: l.drill, swimStroke: x.stroke || l.swimStroke})); });
+  const band = (W - m.l - m.r) / slot, bw = Math.max(1.5, Math.min(18, band * .8));
+  const cx = sl => m.l + band * (sl + .5);
+  const vals = items.map(metric.value), maxV = Math.max(0, ...vals.filter(v => v != null));
+  const ticks = niceTicks(0, maxV || 1, 4), topV = ticks[ticks.length - 1];
+  const Y = v => H - m.b - v / topV * (H - m.t - m.b);
+  const svg = s("svg", {width: W, height: H, role: "img", "aria-label": `${metric.label} per length`});
+  for (const t of ticks) {
+    svg.append(s("line", {x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), stroke: t === 0 ? "var(--axis)" : "var(--grid)"}));
+    svg.append(s("text", {x: m.l - 6, y: Y(t) + 4, "text-anchor": "end"}, (metric.yFmt || axisNum)(t)));
+  }
+  const hl = s("rect", {y: m.t, height: H - m.t - m.b, width: band, fill: "var(--wash)", visibility: "hidden", rx: 3});
+  svg.append(hl);
+  items.forEach((x, i) => {
+    const v = vals[i];
+    if (v == null) return;
+    const y = Y(v);
+    svg.append(s("path", {fill: swimFill(x.drill), d: topRounded(cx(x.slot) - bw / 2, y, bw, Math.max(.5, Y(0) - y))}));
+  });
+  let lastRight = -Infinity;
+  groups.forEach(l => {
+    const own = items.filter(x => x.n === l.n), mid = (cx(own[0].slot) + cx(own[own.length - 1].slot)) / 2, label = `#${l.n}`;
+    if (mid - 12 > lastRight) { svg.append(s("text", {x: mid, y: H - 6, "text-anchor": "middle"}, label)); lastRight = mid + 12; }
+  });
+  bindHover(svg, items.length, e => {
+    const sl = Math.floor((e.clientX - svg.getBoundingClientRect().left - m.l) / band);
+    let best = null, dist = Infinity;
+    items.forEach((x, i) => { const d = Math.abs(x.slot - sl); if (d < dist) { dist = d; best = i; } });
+    return best;
+  }, (i, px, py) => {
+    const x = items[i];
+    hl.setAttribute("x", cx(x.slot) - band / 2); hl.setAttribute("visibility", "visible");
+    showTip(`Interval ${x.n} · length ${x.j}`, [
+      {value: strokeName(x.swimStroke), name: ""},
+      x.strokes ? {value: int(x.strokes), name: "strokes"} : null,
+      x.swolf ? {value: int(x.swolf), name: "SWOLF"} : null,
+      {value: clock(x.duration), name: "time"},
+      x.hr ? {value: int(x.hr), name: "avg HR"} : null,
+    ].filter(Boolean), px, py);
+  }, () => { hl.setAttribute("visibility", "hidden"); hideTip(); });
+  el.replaceChildren(svg);
+}
+
+function swimSection(host, laps) {
+  const {iv, end} = swimModel(laps);
+  if (!iv.length) return false;
+  const restTotal = sumOf(iv, l => l.rest), distTotal = sumOf(iv, l => l.distance);
+  const keys = iv.some(l => l.drill) ? [{name: "Swim", color: swimFill(false), rect: true}, {name: "Drill (no strokes counted)", color: swimFill(true), rect: true}] : null;
+  const intervals = card({title: "Intervals", sub: `${iv.length} intervals · ${int(distTotal)} m · ${clock(restTotal)} rest · pace /100m, taller bar = faster`,
+    legend: keys, draw: (el, W) => intervalChart(el, W, iv, end)});
+  let metric = "strokes", redraw = null;
+  const seg = h("div", {class: "seg", role: "group", "aria-label": "Per-length value", style: "margin-left:auto;flex:none"},
+    Object.entries(LENGTH_METRICS).map(([k, x]) => h("button", {type: "button", "aria-pressed": String(k === metric), onclick: e => {
+      metric = k;
+      seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b === e.currentTarget)));
+      if (redraw) redraw();
+    }}, x.label)));
+  const perLength = card({title: "Per length", sub: `Each bar is one length, grouped by interval${iv.some(l => l.drill) ? "; drills have no strokes or SWOLF" : ""}`,
+    draw: (el, W) => { redraw = () => lengthChart(el, W, iv, metric); redraw(); }});
+  perLength.querySelector(".card-head").append(seg);
+  host.append(h("div", {class: "grid", style: "margin-bottom:14px"}, intervals, perLength));
+  const cols = ["#", "Stroke", "Distance", "Time", "Pace /100m", "Rest after", "SWOLF", "Strokes / length", "Avg HR", "Max HR"];
+  host.append(h("section", {class: "card"}, h("div", {class: "card-head"}, h("div", null, h("h2", null, `Intervals (${iv.length})`))),
+    h("div", {class: "wrap"}, h("table", null,
+      h("thead", null, h("tr", null, cols.map((c, i) => h("th", {class: i > 1 ? "n" : null}, c)))),
+      h("tbody", null, iv.map(l => h("tr", null, [l.n, strokeName(l.swimStroke), `${int(l.distance)} m`, clock(l.time), l.speed ? clock(100 / l.speed) : "–",
+        l.rest != null ? clock(l.rest) : "–", l.averageSWOLF ? int(l.averageSWOLF) : "–", l.averageStrokes ? one(l.averageStrokes) : "–", int(l.averageHR), int(l.maxHR)]
+        .map((v, j) => h("td", {class: j > 1 ? "n" : null}, String(v))))))))));
+  return true;
 }
 
 /* ---------------------------------------------------------------- shell */

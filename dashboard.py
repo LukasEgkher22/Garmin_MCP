@@ -40,6 +40,12 @@ CALL_PAUSE = 0.25       # seconds between Garmin calls
 STALE_AFTER = 3600      # the page triggers a sync if the last one is older than this
 STREAM_POINTS = 700     # per-activity chart resolution
 ROUTE_POINTS = 500
+DETAIL_VERSION = 2      # bump when read_details() returns new fields; older cached details are re-read
+LAP_FIELDS = (
+    "startTimeGMT", "distance", "movingDuration", "duration", "averageSpeed", "averageHR", "maxHR",
+    "averagePower", "normalizedPower", "averageBikeCadence", "averageRunCadence", "elevationGain",
+    "swimStroke", "averageSWOLF", "averageStrokes", "totalNumberOfStrokes",
+)
 
 ACTIVITY_FIELDS = (
     "activityId", "activityName", "startTimeLocal", "distance", "duration", "movingDuration",
@@ -310,10 +316,16 @@ def read_details(activity_id: int) -> dict:
              if p.get("lat") is not None and p.get("lon") is not None]
     laps = []
     for lap in (g.get_activity_splits(activity_id) or {}).get("lapDTOs") or []:
-        laps.append({k: lap.get(k) for k in (
-            "distance", "movingDuration", "duration", "averageSpeed", "averageHR", "maxHR",
-            "averagePower", "normalizedPower", "averageBikeCadence", "averageRunCadence", "elevationGain")})
-    return {"streams": streams, "route": route, "laps": laps}
+        row = {k: lap.get(k) for k in LAP_FIELDS if lap.get(k) is not None}
+        # Pool swims: one entry per length (rests are 0 m laps without real lengths).
+        lengths = [{"distance": x.get("distance"), "duration": x.get("duration"),
+                    "strokes": x.get("totalNumberOfStrokes"), "swolf": x.get("averageSWOLF"),
+                    "stroke": x.get("swimStroke"), "hr": x.get("averageHR")}
+                   for x in lap.get("lengthDTOs") or [] if x.get("distance")]
+        if lengths:
+            row["lengths"] = lengths
+        laps.append(row)
+    return {"v": DETAIL_VERSION, "streams": streams, "route": route, "laps": laps}
 
 
 # ------------------------------------------------------------------- web pages
@@ -356,14 +368,17 @@ async def activity(request: Request) -> JSONResponse:
     con = db()
     try:
         row = con.execute("SELECT json FROM details WHERE id = ?", (aid,)).fetchone()
-        if row:
-            return JSONResponse(json.loads(row[0]))
+        cached = json.loads(row[0]) if row else None
+        if cached and cached.get("v", 1) >= DETAIL_VERSION:
+            return JSONResponse(cached)
         known = con.execute("SELECT 1 FROM activities WHERE id = ?", (aid,)).fetchone()
         if not known:
             return JSONResponse({"error": "unknown activity"}, status_code=404)
         try:
             detail = read_details(aid)
         except Exception as e:  # noqa: BLE001
+            if cached:  # offline or Garmin hiccup: the older cached version is still useful
+                return JSONResponse(cached)
             return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=502)
         con.execute("INSERT OR REPLACE INTO details VALUES (?, ?)", (aid, json.dumps(detail)))
         con.commit()

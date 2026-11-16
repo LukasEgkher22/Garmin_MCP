@@ -30,98 +30,11 @@ also goes to Anthropic. Your password is used once by `login.py` and never store
 | `upload_fit` | Upload a `.fit` file to Garmin Connect as a new activity |
 | `delete_activity` | Delete an activity in Garmin (saves a `.fit` backup first) |
 | `combine_activities` | Download, merge and upload in one step |
-| `strava_upload` | Send one Garmin activity to Strava now (pool swims as interval blocks) |
-| `strava_sync` | Run the Garmin → Strava sync once (or `dry_run` to preview) |
-
-### Garmin → Strava sync (with clean pool swims)
-Strava draws pool swims from the per-length data, which looks noisy.
-`sync_strava.py` replaces Garmin Connect's own Strava connection: it uploads
-every new Garmin activity to Strava itself, and converts pool swims first
-(`swimfit.py`) so each block you swam between two rests shows as one flat
-segment at that block's average pace, with the rests as pauses.
-
-- **Garmin is never changed and nothing is deleted.** Garmin keeps the full
-  swim (per-length strokes, SWOLF); only Strava gets the interval version.
-- Other sports go to Strava as the original file, unchanged.
-- The Strava **phone app** shows the swim blocks correctly. The Strava **website**
-  still draws them its own way; that can't be fixed from the file.
-- The first run only remembers the current time, so older activities are not
-  uploaded again. Use `--since YYYY-MM-DD` to upload older ones on purpose.
-
-It runs either on **GitHub Actions** (every hour, no PC needed, recommended)
-or on your PC with **Task Scheduler**. Use one of them, not both.
-
-**Step 1: Strava API app (both options)**
-Create one at <https://www.strava.com/settings/api>. Any name/website works
-(e.g. "garmin-mcp", `http://localhost`); set **Authorization Callback Domain**
-to `localhost`.
-
-**Option A: GitHub Actions (runs without your PC)**
-The workflow is `.github/workflows/strava-sync.yml`. GitHub gets its *own*
-Garmin and Strava login: the tokens renew themselves, and a login shared with
-your PC would keep breaking one side.
-1. In PowerShell, in this folder, log in for GitHub (tokens go to a separate folder):
-   ```powershell
-   $env:GARMINTOKENS = "$HOME\.garminconnect-github"
-   .venv\Scripts\python.exe login.py
-   .venv\Scripts\python.exe strava_login.py
-   .venv\Scripts\python.exe export_secrets.py
-   ```
-   Then close that terminal (so `GARMINTOKENS` is back to normal).
-2. On GitHub: repo → **Settings → Secrets and variables → Actions → New repository
-   secret**. Create `GARMIN_TOKENS` and `STRAVA_TOKENS` with the values
-   `export_secrets.py` printed. Keep the repo **private**.
-3. **Turn off Garmin's own Strava connection** (Garmin Connect → Settings →
-   Connected Apps → Strava → Disconnect). Otherwise Strava gets everything twice.
-4. Repo → **Actions → Strava sync → Run workflow** once. The first run only
-   remembers "now", so older activities aren't uploaded. After that it runs every
-   hour by itself (GitHub sometimes starts it a few minutes late).
-
-How it keeps state: the renewed tokens, the list of uploaded activities and the
-log live in the repo's private **Actions cache** (Actions → Caches). The secrets
-are only used when that cache is empty. Each run takes about 1 minute, so hourly
-runs use roughly 750 of the 2,000 free Actions minutes a month for private repos.
-If you make it every 30 min (`cron: "*/30 * * * *"`), that's about 1,500.
-
-If a run fails with a Garmin or Strava login error: redo step 1 and 2 (new
-secrets), then delete the `sync-state-…` entries under Actions → Caches so the
-next run uses the new secrets. Garmin sometimes distrusts logins from cloud
-servers; if that keeps happening, use option B.
-
-**Option B: on your PC with Task Scheduler**
-1. Log in to Strava once: `.venv\Scripts\python.exe strava_login.py`
-   (tokens go to `C:\Users\<you>\.garminconnect\strava.json`; treat it like a password).
-2. Test: `.venv\Scripts\python.exe sync_strava.py` (first run: just remembers
-   "now"), then `... sync_strava.py --dry-run` to see what it would upload.
-3. Turn off Garmin's own Strava connection (as in option A).
-4. Run it every 30 minutes (PowerShell, use YOUR path):
-   ```powershell
-   $dir = "C:\Users\<you>\code\garmin-mcp"
-   $action = New-ScheduledTaskAction -Execute "$dir\.venv\Scripts\pythonw.exe" -Argument "sync_strava.py" -WorkingDirectory $dir
-   $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 30)
-   $settings = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
-   Register-ScheduledTask -TaskName "Garmin to Strava" -Action $action -Trigger $trigger -Settings $settings
-   ```
-   `-WakeToRun` wakes a sleeping PC; `-StartWhenAvailable` catches up runs
-   missed while it was off. To also run while you're logged out: Task Scheduler →
-   "Garmin to Strava" → Properties → "Run whether user is logged on or not".
-
-**Everyday use and problems**
-- Log and state: `strava_sync.log` / `strava_sync.json` in the token folder (PC), or
-  the run's output in the Actions tab (GitHub).
-- Upload one activity by hand: ask Claude (`strava_upload`) or run
-  `python sync_strava.py --activity <garmin id>`. Claude's Strava tools use this
-  PC's Strava login (run `strava_login.py` once without `GARMINTOKENS` set).
-- "duplicate": Strava already has that activity (e.g. it came from the old
-  Garmin connection). Strava's API can't delete or replace it; delete it on
-  Strava, then upload it again with `--activity`.
-- Failed uploads are retried on the next runs (up to 5 times).
 
 ### Joining activities that were split by accident
 Ask Claude something like *"combine my two runs from Sunday into one"*. It finds
 the activities, runs `combine_activities`, and uploads the combined one. Your
-Garmin→Strava sync (Garmin's own connection, or `sync_strava.py`) then sends it
-to Strava like any watch upload.
+Garmin Connect's Strava connection then sends it to Strava like any watch upload.
 
 - The originals are **not** deleted automatically. Claude asks you first and then
   uses `delete_activity`, which saves a backup `.fit` before deleting.
@@ -241,6 +154,11 @@ hour old, or when you press **Sync**. Stop it with Ctrl+C.
 | Performance | Power curve, FTP, VO2max, race predictions, efficiency trends, personal records |
 | Calendar | 12-month load heatmap, month view with completed and planned workouts |
 | Activities | Searchable, sortable list; click one for its charts, route shape and laps |
+
+Pool swims open with an **Intervals** chart (one bar per block you swam between
+two rests, as wide as it lasted, taller = faster pace), a **Per length** chart
+(strokes, SWOLF or time for every length) and an interval table with the rest
+after each block. It all comes from Garmin's own lap data; nothing is uploaded.
 
 The date range and sport filters at the top apply to everything below them.
 

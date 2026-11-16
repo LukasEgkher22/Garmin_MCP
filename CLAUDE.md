@@ -12,12 +12,6 @@ Windows, Python 3.13, venv in `.venv`.
 |---|---|
 | `server.py` | MCP server (stdio), started by Claude desktop. Every tool is in this file. |
 | `fitmerge.py` | FIT file reader, writer and merger, using only the standard library |
-| `swimfit.py` | Pool swim → "interval" FIT for Strava (built on fitmerge) |
-| `strava.py` | Strava API client, stdlib only: token refresh, upload, upload status |
-| `strava_login.py` | One-time Strava OAuth; tokens in `~/.garminconnect/strava.json` |
-| `sync_strava.py` | Garmin → Strava sync; state + log in the token folder (`GARMINTOKENS`, default `~/.garminconnect/`) |
-| `.github/workflows/strava-sync.yml` | Runs `sync_strava.py` hourly on GitHub Actions; tokens + state in the Actions cache |
-| `export_secrets.py` | Prints the `GARMIN_TOKENS` / `STRAVA_TOKENS` values for the GitHub secrets |
 | `login.py` | One-time Garmin login; saves tokens to `~/.garminconnect` (never the password) |
 | `dashboard.py` / `dashboard.html` | Local dashboard at `http://127.0.0.1:8765`, cache in `~/.garminconnect/dashboard_cache.sqlite` |
 | `requirements.txt` | Pinned: garminconnect 0.3.20, mcp 2.3.0, starlette, uvicorn |
@@ -50,8 +44,30 @@ Windows, Python 3.13, venv in `.venv`.
   unless the rest is its own 0 m lap; even then the website view isn't clean. The
   phone app shows the interval version correctly. Tested by hand 2026-11-16.
 - Garmin Connect DOES forward `upload_activity` uploads to Strava, but it can take ~20 min.
+- The Strava API now needs a paid Strava subscription (since 2026), which the user doesn't have.
+  Don't build on the Strava API; Strava only gets data via Garmin Connect's own connection.
+- Garmin's `get_activity_splits` for a pool swim: every swim block is a lap with `lengthDTOs`
+  (strokes, SWOLF, stroke type per length); every rest is a 0 m lap with one 0 m length.
+  Drill laps have `swimStroke` DRILL and 0 strokes.
 
 ## History
+
+### 2026-11-16: Strava sync dropped, swim intervals in the dashboard (uncommitted)
+- The Strava API needs a paid subscription, so the Strava sync (built earlier today) can't
+  work for this user. Chosen instead: show swims as intervals in the dashboard.
+- Removed `strava.py`, `strava_login.py`, `sync_strava.py`, `export_secrets.py`, `swimfit.py`,
+  `.github/workflows/strava-sync.yml`, the MCP tools `strava_upload` / `strava_sync` and the
+  README sync section. All of it is still in git history (eda6e0d, e88e963) if a subscription
+  ever makes it useful again. No Strava app, logins or GitHub secrets had been created.
+- `dashboard.py`: laps now carry `startTimeGMT`, swim stroke, SWOLF, strokes and a `lengths`
+  list. Details have a version (`DETAIL_VERSION = 2`); older cached details are re-read from
+  Garmin when opened (falls back to the old cache if Garmin fails).
+- `dashboard.html`: pool swims (`lap_swimming`) show an **Intervals** chart (bar per block,
+  width = duration on a time axis, height = pace /100m, drills in muted gray, rests are gaps),
+  a **Per length** chart (Strokes / SWOLF / Time toggle, grouped by interval) and an
+  interval table (stroke, time, pace, rest after, SWOLF, strokes/length, HR) instead of the laps table.
+- Checked with the 9 Nov swim (25016505235): 19 intervals, 2,400 m, light + dark screenshots fine.
+- The 16 Nov swim (25097131586) was re-uploaded without lengths, so it has no per-length data.
 
 ### 2026-11-16: Garmin → Strava sync with interval swims
 Goal: every swim on Strava shows one flat block per interval (between rests),
