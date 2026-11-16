@@ -30,11 +30,70 @@ also goes to Anthropic. Your password is used once by `login.py` and never store
 | `upload_fit` | Upload a `.fit` file to Garmin Connect as a new activity |
 | `delete_activity` | Delete an activity in Garmin (saves a `.fit` backup first) |
 | `combine_activities` | Download, merge and upload in one step |
+| `strava_upload` | Send one Garmin activity to Strava now (pool swims as interval blocks) |
+| `strava_sync` | Run the Garmin → Strava sync once (or `dry_run` to preview) |
+
+### Garmin → Strava sync (with clean pool swims)
+Strava draws pool swims from the per-length data, which looks noisy.
+`sync_strava.py` replaces Garmin Connect's own Strava connection: it uploads
+every new Garmin activity to Strava itself, and converts pool swims first
+(`swimfit.py`) so each block you swam between two rests shows as one flat
+segment at that block's average pace, with the rests as pauses.
+
+- **Garmin is never changed and nothing is deleted.** Garmin keeps the full
+  swim (per-length strokes, SWOLF); only Strava gets the interval version.
+- Other sports go to Strava as the original file, unchanged.
+- The Strava **phone app** shows the swim blocks correctly. The Strava **website**
+  still draws them its own way; that can't be fixed from the file.
+- The first run only remembers the current time, so older activities are not
+  uploaded again. Use `--since YYYY-MM-DD` to upload older ones on purpose.
+
+**One-time setup**
+1. **Create a Strava API app** at <https://www.strava.com/settings/api>.
+   Any name/website works (e.g. "garmin-mcp", `http://localhost`);
+   set **Authorization Callback Domain** to `localhost`.
+2. **Log in to Strava once** (VS Code terminal, in this folder):
+   ```powershell
+   .venv\Scripts\python.exe strava_login.py
+   ```
+   Paste the app's Client ID and Client Secret, then click *Authorize* in the
+   browser. Tokens go to `C:\Users\<you>\.garminconnect\strava.json`.
+   Treat that file like a password.
+3. **Test it:**
+   ```powershell
+   .venv\Scripts\python.exe sync_strava.py            # first run: just remembers "now"
+   .venv\Scripts\python.exe sync_strava.py --dry-run  # shows what it would upload
+   ```
+4. **Turn off Garmin's own Strava connection** (Garmin Connect → Settings →
+   Connected Apps → Strava → Disconnect). Otherwise Strava gets everything twice.
+5. **Run it every 30 minutes** with Task Scheduler (PowerShell, use YOUR path):
+   ```powershell
+   $dir = "C:\Users\<you>\code\garmin-mcp"
+   $action = New-ScheduledTaskAction -Execute "$dir\.venv\Scripts\pythonw.exe" -Argument "sync_strava.py" -WorkingDirectory $dir
+   $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 30)
+   $settings = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+   Register-ScheduledTask -TaskName "Garmin to Strava" -Action $action -Trigger $trigger -Settings $settings
+   ```
+   `-WakeToRun` wakes a sleeping PC; `-StartWhenAvailable` catches up runs
+   missed while it was off. To also run while you're logged out, open Task
+   Scheduler → "Garmin to Strava" → Properties → "Run whether user is logged on or not".
+
+**Everyday use and problems**
+- Log: `C:\Users\<you>\.garminconnect\strava_sync.log`. State (what was
+  uploaded): `strava_sync.json` in the same folder.
+- Upload one activity by hand: `python sync_strava.py --activity <garmin id>`,
+  or ask Claude (`strava_upload`).
+- "duplicate": Strava already has that activity (e.g. it came from the old
+  Garmin connection). Strava's API can't delete or replace it; delete it on
+  Strava, then upload it again with `--activity`.
+- Failed uploads are retried on the next runs (up to 5 times).
+- Strava login errors: run `strava_login.py` again.
 
 ### Joining activities that were split by accident
 Ask Claude something like *"combine my two runs from Sunday into one"*. It finds
 the activities, runs `combine_activities`, and uploads the combined one. Your
-Garmin→Strava sync then sends it to Strava like any watch upload.
+Garmin→Strava sync (Garmin's own connection, or `sync_strava.py`) then sends it
+to Strava like any watch upload.
 
 - The originals are **not** deleted automatically. Claude asks you first and then
   uses `delete_activity`, which saves a backup `.fit` before deleting.

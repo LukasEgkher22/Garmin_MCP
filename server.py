@@ -36,7 +36,8 @@ mcp = MCPServer(
         "the workout on the Garmin calendar so it syncs to the watch. "
         "To join activities that were split by accident, use combine_activities; "
         "it never deletes anything. delete_activity is permanent: always ask the "
-        "user and wait for an explicit yes before calling it."
+        "user and wait for an explicit yes before calling it. strava_upload / "
+        "strava_sync send activities straight to Strava (pool swims as interval blocks)."
     ),
 )
 
@@ -562,6 +563,36 @@ def combine_activities(activity_ids: list[str], name: str | None = None) -> dict
             "next": "Ask the user before deleting the originals with delete_activity. "
                     "On Strava the originals must be deleted by hand (Strava's API can't delete).",
         }
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+# ------------------------------------------------------------------ Strava
+#
+# Uploads go straight to Strava (sync_strava.py / strava.py). Garmin is not
+# changed. Needs the one-time `python strava_login.py`.
+
+@mcp.tool()
+def strava_upload(activity_id: str) -> dict:
+    """Upload one Garmin activity to Strava now. Pool swims are converted first so
+    Strava shows one flat block per interval. Garmin is not changed. If Strava already
+    has this activity it reports 'duplicate' (Strava's API can't delete or replace it;
+    the user deletes the old one on Strava by hand, then calls this again)."""
+    try:
+        import sync_strava
+        return sync_strava.run(api(), _download_fit, FIT_DIR, only=activity_id)
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+@mcp.tool()
+def strava_sync(dry_run: bool = False) -> dict:
+    """Run the Garmin -> Strava sync once (the same pass Task Scheduler runs): uploads
+    every new Garmin activity since the sync was set up, converting pool swims.
+    dry_run=True only lists what would be uploaded."""
+    try:
+        import sync_strava
+        return sync_strava.run(api(), _download_fit, FIT_DIR, dry_run=dry_run)
     except Exception as e:  # noqa: BLE001
         return {"error": f"{type(e).__name__}: {e}"}
 
