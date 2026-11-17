@@ -1,0 +1,21 @@
+# Only the server code goes into the .mcpb bundle (see README: Building the extension)
+.git/
+.github/
+.venv/
+.vscode/
+__pycache__/
+*.pyc
+dist/
+Claude outputs/
+CLAUDE.md
+README.md
+requirements.txt
+login.py
+start_dashboard.bat
+start_dashboard.command
+build_extension.py
+.gitignore
+.mcpbignore
+.env
+*.sqlite
+*.fit

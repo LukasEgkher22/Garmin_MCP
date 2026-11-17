@@ -1,13 +1,18 @@
 """Personal Garmin Connect MCP server (runs locally, talks only to Garmin).
 
-Claude desktop starts this script itself (see README). It uses the tokens
-saved by login.py; it never sees your password.
+Claude desktop starts this script itself (see README). It uses saved sign-in
+tokens; the password is only ever typed into the local sign-in page that
+garmin_login opens (weblogin.py) or into login.py, never into the chat.
 """
 
 import datetime as dt
 import io
 import os
+import socket
+import sys
+import threading
 import time
+import webbrowser
 import zipfile
 from pathlib import Path
 from typing import Any, Literal
@@ -18,15 +23,22 @@ from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, Field
 
 import fitmerge
+import weblogin
 
 TOKEN_DIR = Path(os.getenv("GARMINTOKENS", Path.home() / ".garminconnect"))
 FIT_DIR = Path(os.getenv("GARMIN_FIT_DIR", Path.home() / "Documents" / "Garmin FIT"))
+DASHBOARD_PORT = int(os.getenv("GARMIN_DASHBOARD_PORT", "8765"))
 MAX_LIST = 40  # long time series get cut so answers stay readable
 
 mcp = MCPServer(
     "garmin",
     instructions=(
-        "Personal Garmin Connect data for training coaching. Dates are "
+        "Personal Garmin Connect data for training coaching. If a tool says the "
+        "user isn't signed in, call garmin_login: it opens a sign-in page in the "
+        "user's browser. Never ask for the Garmin password in the chat. If the user "
+        "seems new, says hi, or asks what this can do, call getting_started and give a "
+        "short welcome. "
+        "open_dashboard opens the user's training dashboard in the browser. Dates are "
         "YYYY-MM-DD. Use daily_overview for recovery (sleep, HRV, readiness, "
         "Body Battery), list_activities / activity_details for training done, "
         "training_status for load and VO2max, and create_run/bike/swim_workout to put "
@@ -43,14 +55,21 @@ mcp = MCPServer(
 _api: Garmin | None = None
 
 
+NOT_SIGNED_IN = ("Not signed in to Garmin. Call the garmin_login tool: it opens a "
+                 "sign-in page in the user's browser (never ask for the password in the chat).")
+
+
 def api() -> Garmin:
     """Log in lazily from saved tokens (no password)."""
     global _api
     if _api is None:
         if not TOKEN_DIR.exists():
-            raise RuntimeError(f"No tokens in {TOKEN_DIR}. Run 'python login.py' first.")
-        g = Garmin()
-        g.login(str(TOKEN_DIR))
+            raise RuntimeError(NOT_SIGNED_IN)
+        try:
+            g = Garmin()
+            g.login(str(TOKEN_DIR))
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"{NOT_SIGNED_IN} (Details: {type(e).__name__}: {e})") from e
         _api = g
     return _api
 
@@ -77,6 +96,123 @@ def safe(fn, *args, **kwargs) -> Any:
 
 def today() -> str:
     return dt.date.today().isoformat()
+
+
+# ------------------------------------------------------- sign-in and dashboard
+
+WELCOME = {
+    "what_you_can_do": [
+        "Recovery: sleep, HRV, Body Battery, training readiness",
+        "Training: recent activities, laps, heart rate zones, training load, VO2max, race predictions",
+        "Plan workouts (run, bike, pool swim) that go on the Garmin calendar and sync to the watch",
+        "Open a training dashboard with charts in the browser",
+        "Join activities that were split by accident",
+    ],
+    "try_asking": [
+        "How did I sleep this week, and am I recovered enough for a hard session today?",
+        "Summarize my training of the last 4 weeks.",
+        "Plan 6x800 m intervals for Thursday and put them on my watch.",
+        "Open my training dashboard.",
+    ],
+    "for_claude": "Give the user a SHORT welcome: one sentence, the list of what they can do "
+                  "(one line each), and 2-3 of the example questions. No more than that.",
+}
+
+_login_page: weblogin.LoginPage | None = None
+
+
+@mcp.prompt(title="Get started with Garmin",
+            description="Sign in to Garmin and see what you can do with this connection")
+def get_started() -> str:
+    return ("I just installed the Garmin connection. Sign me in to Garmin if I'm not signed in "
+            "yet, then tell me very briefly what I can do with it and give me a few example "
+            "questions I could ask.")
+
+
+@mcp.tool()
+def getting_started() -> dict:
+    """What this Garmin connection can do, with example questions. Use it when the
+    user is new, asks what they can do, or asks for help with Garmin."""
+    try:
+        name = api().get_full_name()
+        status = {"signed_in": True, "name": name}
+    except Exception:  # noqa: BLE001
+        status = {"signed_in": False, "next": "Offer to sign them in with garmin_login first."}
+    return {**status, **WELCOME}
+
+
+@mcp.tool()
+def garmin_login(switch_account: bool = False) -> dict:
+    """Sign the user in to Garmin Connect. Opens a sign-in page in the user's web
+    browser where THEY type their Garmin email, password and (if Garmin asks) a
+    security code. Never ask for the password in the chat. Waits up to ~50 s for
+    them to finish; if it's not finished yet, ask the user to complete it and then
+    call this again. switch_account=True signs in again even if already signed in."""
+    global _api, _login_page
+    if not switch_account and (_login_page is None or not _login_page.active):
+        try:
+            return {"signed_in": True, "name": api().get_full_name()}
+        except Exception:  # noqa: BLE001
+            pass  # no or expired tokens: open the page
+    opened = False
+    if _login_page is None or not _login_page.active:
+        _login_page = weblogin.LoginPage(TOKEN_DIR)
+        opened = webbrowser.open(_login_page.url)
+    if _login_page.done.wait(50):
+        _api = None  # use the new tokens from now on
+        return {"signed_in": True, "name": _login_page.name, "just_signed_in": True, **WELCOME}
+    return {
+        "signed_in": False,
+        "sign_in_page": _login_page.url,
+        "browser_opened": opened,
+        "next": "Tell the user a Garmin sign-in page is open in their browser (if they "
+                "can't see it, give them the link). When they say they're done, call "
+                "garmin_login again. Never ask for their password here.",
+    }
+
+
+def _port_open(port: int) -> bool:
+    with socket.socket() as s:
+        s.settimeout(0.5)
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
+_dashboard_started = False
+
+
+@mcp.tool()
+def open_dashboard() -> dict:
+    """Open the user's training dashboard (training load, activities, sleep, HRV,
+    swim intervals, calendar) in their web browser. It runs on this computer while
+    the Claude app is open. The first load can take a few minutes while it reads
+    the history from Garmin."""
+    global _dashboard_started
+    url = f"http://127.0.0.1:{DASHBOARD_PORT}"
+    try:
+        api()
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e)}
+    if not _dashboard_started and not _port_open(DASHBOARD_PORT):
+        try:
+            import uvicorn
+            sys.modules.setdefault("server", sys.modules[__name__])  # dashboard shares this login
+            import dashboard
+            srv = uvicorn.Server(uvicorn.Config(
+                dashboard.app, host="127.0.0.1", port=DASHBOARD_PORT,
+                log_level="warning", access_log=False))  # stdout belongs to MCP
+            threading.Thread(target=srv.run, daemon=True).start()
+            for _ in range(50):
+                if srv.started:
+                    break
+                time.sleep(0.2)
+            else:
+                return {"error": f"The dashboard didn't start (is port {DASHBOARD_PORT} in use?)."}
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"{type(e).__name__}: {e}"}
+    _dashboard_started = True
+    opened = webbrowser.open(url)
+    return {"url": url, "browser_opened": opened,
+            "note": "Runs while the Claude app is open. If the browser didn't open, give the user the link."}
 
 
 # ---------------------------------------------------------------- read tools
@@ -402,7 +538,7 @@ def cycling_ftp() -> dict:
 
 # ------------------------------------------------------------- FIT file tools
 #
-# Files live in FIT_DIR on this PC (default Documents\Garmin FIT) and never
+# Files live in FIT_DIR on this computer (default Documents/Garmin FIT) and never
 # leave it except to go to Garmin.
 
 def _fit_path(p: str) -> Path:
@@ -471,7 +607,7 @@ def _upload(path: Path, exclude: set[str] = frozenset()) -> dict:
 
 @mcp.tool()
 def download_fit(activity_id: str) -> dict:
-    """Save an activity's original .fit file to the local FIT folder on this PC.
+    """Save an activity's original .fit file to the local FIT folder on this computer.
     Returns the file path (use it with merge_fit / upload_fit)."""
     try:
         p = _download_fit(activity_id)

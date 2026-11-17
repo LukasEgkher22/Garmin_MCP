@@ -1,0 +1,143 @@
+{
+  "manifest_version": "0.4",
+  "name": "garmin-mcp",
+  "display_name": "Garmin Connect (unofficial)",
+  "version": "1.0.0",
+  "description": "Lets Claude read your Garmin Connect training data, plan workouts on your Garmin calendar, and open a local training dashboard.",
+  "long_description": "Unofficial personal project, not affiliated with or endorsed by Garmin. It runs on your computer and talks only to Garmin. Anything Claude reads through it, including health data, also goes to Anthropic.\n\n**Getting started:** after installing, open a new chat and type *\"Get started with Garmin\"*. A sign-in page opens in your web browser: type your Garmin email and password there (never in the chat). Your password is not saved; only a sign-in token is kept on your computer.\n\nThen ask things like *\"How did I sleep this week?\"*, *\"Plan an interval run for Thursday\"* or *\"Open my training dashboard\"*.",
+  "author": {
+    "name": "Lukas Egkher",
+    "email": "lukas@egkher.at",
+    "url": "https://github.com/LukasEgkher22/Garmin_MCP"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LukasEgkher22/Garmin_MCP"
+  },
+  "homepage": "https://github.com/LukasEgkher22/Garmin_MCP",
+  "support": "https://github.com/LukasEgkher22/Garmin_MCP/issues",
+  "license": "MIT",
+  "keywords": [
+    "garmin",
+    "training",
+    "running",
+    "cycling",
+    "swimming",
+    "health"
+  ],
+  "server": {
+    "type": "uv",
+    "entry_point": "server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${__dirname}",
+        "server.py"
+      ],
+      "env": {
+        "GARMIN_FIT_DIR": "${user_config.fit_dir}"
+      }
+    }
+  },
+  "user_config": {
+    "fit_dir": {
+      "type": "directory",
+      "title": "Folder for activity files",
+      "description": "Where .fit activity files are saved when Claude downloads, merges or backs up an activity.",
+      "required": false,
+      "default": "${DOCUMENTS}/Garmin FIT"
+    }
+  },
+  "tools": [
+    {
+      "name": "garmin_login",
+      "description": "Sign in to Garmin in your browser (the password never goes through the chat)"
+    },
+    {
+      "name": "getting_started",
+      "description": "What you can do with this connection, with example questions"
+    },
+    {
+      "name": "open_dashboard",
+      "description": "Open your local training dashboard in the browser"
+    },
+    {
+      "name": "daily_overview",
+      "description": "Sleep, HRV, training readiness, Body Battery, resting HR, stress, steps"
+    },
+    {
+      "name": "list_activities",
+      "description": "Activities in a date range with the key numbers"
+    },
+    {
+      "name": "activity_details",
+      "description": "One activity: summary, laps, time in HR zones"
+    },
+    {
+      "name": "training_status",
+      "description": "Training status and load, VO2max, race predictions"
+    },
+    {
+      "name": "scheduled_workouts",
+      "description": "Workouts on your Garmin calendar for a month"
+    },
+    {
+      "name": "create_run_workout",
+      "description": "Structured run workout, optionally put on the calendar"
+    },
+    {
+      "name": "create_bike_workout",
+      "description": "Structured bike workout (% FTP, power, HR, cadence)"
+    },
+    {
+      "name": "create_swim_workout",
+      "description": "Structured pool swim workout"
+    },
+    {
+      "name": "delete_workout",
+      "description": "Remove a workout from Garmin Connect"
+    },
+    {
+      "name": "cycling_ftp",
+      "description": "Your current cycling FTP"
+    },
+    {
+      "name": "download_fit",
+      "description": "Save an activity's original .fit file"
+    },
+    {
+      "name": "merge_fit",
+      "description": "Join several .fit files into one activity"
+    },
+    {
+      "name": "upload_fit",
+      "description": "Upload a .fit file to Garmin Connect"
+    },
+    {
+      "name": "delete_activity",
+      "description": "Delete an activity (asks first, saves a backup)"
+    },
+    {
+      "name": "combine_activities",
+      "description": "Join activities that were split by accident"
+    }
+  ],
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32"
+    ],
+    "runtimes": {
+      "python": ">=3.12"
+    }
+  },
+  "prompts": [
+    {
+      "name": "get_started",
+      "description": "Sign in to Garmin and see what you can do with this connection",
+      "text": "I just installed the Garmin connection. Sign me in to Garmin if I'm not signed in yet, then tell me very briefly what I can do with it and give me a few example questions I could ask."
+    }
+  ]
+}

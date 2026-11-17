@@ -7,3 +7,7 @@ __pycache__/
 .garminconnect/
 .env
 *.sqlite
+
+# Built extension bundles (publish them as GitHub release files instead)
+dist/
+*.mcpb

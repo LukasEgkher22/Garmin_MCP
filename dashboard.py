@@ -5,7 +5,7 @@
 
 Uses the tokens saved by login.py. Data is cached in a SQLite file next to those
 tokens, so the page loads instantly and Garmin is only asked for what's new.
-The server listens on this PC only and is read-only towards Garmin.
+The server listens on this computer only and is read-only towards Garmin.
 """
 
 import argparse

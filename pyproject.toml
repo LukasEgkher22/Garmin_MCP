@@ -1,0 +1,14 @@
+[project]
+name = "garmin-mcp"
+version = "1.0.0"
+description = "Connect the Claude desktop app to your Garmin Connect data"
+requires-python = ">=3.12"
+dependencies = [
+    "garminconnect==0.3.20",
+    "mcp==2.3.0",
+    "starlette==1.10.0",
+    "uvicorn==0.54.0",
+]
+
+[tool.uv]
+package = false

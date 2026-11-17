@@ -12,9 +12,12 @@ Windows, Python 3.13, venv in `.venv`.
 |---|---|
 | `server.py` | MCP server (stdio), started by Claude desktop. Every tool is in this file. |
 | `fitmerge.py` | FIT file reader, writer and merger, using only the standard library |
-| `login.py` | One-time Garmin login; saves tokens to `~/.garminconnect` (never the password) |
+| `weblogin.py` | Local browser sign-in page used by the `garmin_login` tool (password goes straight to Garmin) |
+| `login.py` | Terminal login for the manual setup; saves tokens to `~/.garminconnect` (never the password) |
 | `dashboard.py` / `dashboard.html` | Local dashboard at `http://127.0.0.1:8765`, cache in `~/.garminconnect/dashboard_cache.sqlite` |
-| `requirements.txt` | Pinned: garminconnect 0.3.20, mcp 2.3.0, starlette, uvicorn |
+| `manifest.json` / `pyproject.toml` / `uv.lock` / `.python-version` / `.mcpbignore` | Desktop Extension (`.mcpb`) packaging, `uv` runtime |
+| `requirements.txt` | Pinned: garminconnect 0.3.20, mcp 2.3.0, starlette, uvicorn (keep in sync with `pyproject.toml`) |
+| `start_dashboard.bat` / `.command` | Start the dashboard without Claude (manual setup, Windows / Mac) |
 
 ## Conventions
 - Tools are plain functions with `@mcp.tool()`. Short docstrings matter, because Claude reads them.
@@ -22,7 +25,12 @@ Windows, Python 3.13, venv in `.venv`.
   `safe(...)` or try/except so a tool returns `{"error": ...}` instead of crashing.
 - `slim()` trims Garmin's large JSON responses before they are returned.
 - After changing `server.py`, the user must fully quit and reopen Claude desktop.
-- Never ask for or handle the Garmin password; the user runs `login.py` themselves.
+- Never ask for or handle the Garmin password in the chat; the user types it into the
+  `weblogin.py` browser page (or `login.py` in the manual setup).
+- Nothing may write to stdout in the server process (MCP uses stdio): the login page
+  silences its logs and the in-process dashboard runs uvicorn with `access_log=False`.
+- Build the extension: `npx @anthropic-ai/mcpb pack . dist/garmin-mcp.mcpb`. New files
+  that the server needs must not be excluded in `.mcpbignore`.
 - Never commit tokens, `.env` or `*.sqlite` (already in `.gitignore`).
 
 ## Gotchas
@@ -52,6 +60,34 @@ Windows, Python 3.13, venv in `.venv`.
 
 ## History
 
+### 2026-11-17: Mac support and one-click Desktop Extension (uncommitted)
+Goal: non-technical users on Mac or Windows install it by opening one file; the free
+Claude desktop plan is enough (ChatGPT Free can't add custom MCP servers, and
+ChatGPT can't start local servers at all, so it was ruled out).
+- `.mcpb` bundle with `server.type = "uv"`: Claude desktop downloads Python (pinned
+  3.13 via `.python-version`) and the packages from `uv.lock` itself. Bundle is 118 kB,
+  10 files. `user_config.fit_dir` (default `${DOCUMENTS}/Garmin FIT`) → `GARMIN_FIT_DIR`.
+- New tool `garmin_login`: opens `weblogin.py`'s page on 127.0.0.1 (random port,
+  secret path, Host check, closes after sign-in or 15 min), supports Garmin MFA via
+  `return_on_mfa` + `resume_login`, dumps tokens and checks them. Waits ≤50 s, then
+  tells Claude to ask the user and call again. `api()` errors now point Claude to it.
+- New tool `open_dashboard`: runs the dashboard in a thread inside the MCP process
+  (`sys.modules["server"]` aliased so it shares the login), or just opens the browser if
+  port 8765 is already in use.
+- Onboarding (an extension can't open a chat by itself, so the first step leads into it):
+  MCP prompt `get_started` ("Get started with Garmin", in Claude's + menu), tool
+  `getting_started` (capabilities + example questions, `WELCOME` in server.py; the server
+  instructions tell Claude to use it for new users), `garmin_login` returns `WELCOME`
+  after a fresh sign-in, and the browser "Signed in" page lists example questions with
+  Copy buttons.
+- README: new "Install" section for everyone, manual setup for Windows and Mac,
+  build steps. Old "Easy setup with Claude" prompt removed. `start_dashboard.command` added.
+- Tested on Windows: bundle unpacked and run with `uv run` and empty uv caches
+  (Python downloaded automatically, real Garmin data read); login page flow incl.
+  wrong password, MFA, Host/secret checks with a fake Garmin; `open_dashboard` serves
+  the page; no stdout output. **Not tested:** installing the `.mcpb` in Claude desktop
+  itself, a real browser sign-in, and anything on a Mac.
+
 ### 2026-11-16: Strava sync dropped, swim intervals in the dashboard (uncommitted)
 - The Strava API needs a paid subscription, so the Strava sync (built earlier today) can't
   work for this user. Chosen instead: show swims as intervals in the dashboard.
@@ -68,6 +104,10 @@ Windows, Python 3.13, venv in `.venv`.
   interval table (stroke, time, pace, rest after, SWOLF, strokes/length, HR) instead of the laps table.
 - Checked with the 9 Nov swim (25016505235): 19 intervals, 2,400 m, light + dark screenshots fine.
 - The 16 Nov swim (25097131586) was re-uploaded without lengths, so it has no per-length data.
+  The original .fit was uploaded again as **25097837471** ("Pool Swim – 2.5k", 100 lengths).
+  Garmin first refused it with 409 "Duplicate Activity" (same `file_id` as 25097131586), so
+  the upload is a copy with a new `file_id.time_created` (`25095714915_REUPLOAD.fit` in FIT_DIR).
+  25097131586 is still in Garmin until the user says yes to deleting it.
 
 ### 2026-11-16: Garmin → Strava sync with interval swims
 Goal: every swim on Strava shows one flat block per interval (between rests),
