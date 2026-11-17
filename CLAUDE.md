@@ -82,7 +82,9 @@ ChatGPT can't start local servers at all, so it was ruled out).
   Copy buttons.
 - Updates: tool `update_extension` reads the latest GitHub release of `REPO`, compares it
   with `manifest.json`'s version, downloads `garmin-mcp.mcpb` to ~/Downloads and opens it
-  (Claude shows its install window). A background check at startup lets `garmin_login` /
+  shows it in Explorer/Finder; the user drags it into Settings → Extensions (double-click /
+  `os.startfile` doesn't work: Claude isn't registered for `.mcpb` on the user's Windows PC,
+  found 2026-11-17). A background check at startup lets `garmin_login` /
   `getting_started` mention new versions. Releases: bump `manifest.json` version, push tag
   `vX.Y.Z`; `.github/workflows/release.yml` builds and publishes (refuses on version
   mismatch). Needs a public repo (unauthenticated download). `pyproject.toml`'s version

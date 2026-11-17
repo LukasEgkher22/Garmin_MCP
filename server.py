@@ -174,12 +174,14 @@ def _update_note() -> dict:
     return {}
 
 
-def _open_file(path: Path) -> bool:
+def _show_file(path: Path) -> bool:
+    """Show the file selected in Explorer / Finder. (Opening the .mcpb directly isn't
+    reliable: Claude doesn't always register itself for the file type.)"""
     try:
         if sys.platform == "win32":
-            os.startfile(path)  # noqa: S606
+            subprocess.Popen(["explorer", "/select,", str(path)])  # noqa: S603, S607
         else:
-            subprocess.run(["open", str(path)], check=True, timeout=20)
+            subprocess.run(["open", "-R", str(path)], check=True, timeout=20)  # noqa: S603, S607
         return True
     except Exception:  # noqa: BLE001
         return False
@@ -188,8 +190,8 @@ def _open_file(path: Path) -> bool:
 @mcp.tool()
 def update_extension() -> dict:
     """Update this Garmin extension: checks GitHub for a newer version and, if there
-    is one, downloads it and opens Claude's install window, where the user clicks
-    Install. Call it when the user asks to update."""
+    is one, downloads it to the user's Downloads folder and shows it there; the user
+    then drags it into Claude's Settings → Extensions. Call it when the user asks to update."""
     global _update
     _update = None  # always ask GitHub again
     u = _check_update()
@@ -214,10 +216,11 @@ def update_extension() -> dict:
         "from_version": u["current"],
         "to_version": u["latest"],
         "release_notes": u["release_notes"],
-        "install_window_opened": _open_file(path),
-        "next": "Tell the user to click Install (or Update) in the window Claude opened, then "
-                "start a new chat. If no window appeared: Settings → Extensions, and drag the "
-                f"file {path.name} from their Downloads folder into it. They stay signed in.",
+        "folder_shown": _show_file(path),
+        "next": f"Tell the user, in short steps: the file {path.name} is in their Downloads "
+                "folder (a window showing it just opened). In Claude, open Settings → Extensions, "
+                "drag the file into that window and click Install. Then start a new chat. "
+                "They stay signed in.",
     }
 
 

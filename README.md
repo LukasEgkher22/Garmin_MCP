@@ -19,7 +19,7 @@ browser, never into the chat, and it is never stored.
 |---|---|
 | `garmin_login` | Opens a sign-in page in your browser (password never goes through the chat) |
 | `getting_started` | What you can do with this connection, with example questions |
-| `update_extension` | Checks for a newer version and opens the install window |
+| `update_extension` | Checks for a newer version and downloads it |
 | `open_dashboard` | Opens the training dashboard in your browser |
 | `daily_overview` | Sleep, HRV, training readiness, Body Battery, resting HR, stress, steps |
 | `list_activities` | Activities in a date range with the key numbers |
@@ -73,9 +73,9 @@ The free plan is enough; you don't need Claude Code or a paid plan.
 
 1. **Download [garmin-mcp.mcpb](https://github.com/LukasEgkher22/Garmin_MCP/releases/latest/download/garmin-mcp.mcpb)**
    (always the newest version), or use the file someone sent you.
-2. **Install it:** double-click the file, and Claude opens an install window. Click
-   **Install**. If double-clicking doesn't work, open Claude → **Settings →
-   Extensions** and drag the file into that window.
+2. **Install it:** open Claude → **Settings → Extensions**, drag the file into that
+   window and click **Install**. (Double-clicking the file usually doesn't work,
+   because Windows doesn't know to open it with Claude.)
 3. **Get started:** open a new chat and type *"Get started with Garmin"*. Claude
    opens a Garmin sign-in page in your web browser. Type your email and password
    there (and the code Garmin sends you, if it asks). *Never type your password
@@ -203,8 +203,8 @@ The date range and sport filters at the top apply to everything below them.
 
 ## Updating
 - **Extension:** tell Claude *"update Garmin"*. It checks for a new version, downloads
-  it and opens the install window; click **Install** and start a new chat. You stay
-  signed in. (Or download the file again and install it the same way.)
+  it to your Downloads folder and shows it there. Drag it into **Settings →
+  Extensions**, click **Install** and start a new chat. You stay signed in.
 - **Manual setup:** replace the files, then fully quit and reopen Claude.
 
 ## If something breaks
