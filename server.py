@@ -7,11 +7,15 @@ garmin_login opens (weblogin.py) or into login.py, never into the chat.
 
 import datetime as dt
 import io
+import json
 import os
+import re
 import socket
+import subprocess
 import sys
 import threading
 import time
+import urllib.request
 import webbrowser
 import zipfile
 from pathlib import Path
@@ -37,7 +41,7 @@ mcp = MCPServer(
         "user isn't signed in, call garmin_login: it opens a sign-in page in the "
         "user's browser. Never ask for the Garmin password in the chat. If the user "
         "seems new, says hi, or asks what this can do, call getting_started and give a "
-        "short welcome. "
+        "short welcome. If the user asks to update the Garmin extension, call update_extension. "
         "open_dashboard opens the user's training dashboard in the browser. Dates are "
         "YYYY-MM-DD. Use daily_overview for recovery (sleep, HRV, readiness, "
         "Body Battery), list_activities / activity_details for training done, "
@@ -121,6 +125,102 @@ WELCOME = {
 _login_page: weblogin.LoginPage | None = None
 
 
+# --------------------------------------------------------------------- updates
+
+REPO = "LukasEgkher22/Garmin_MCP"
+RELEASE_ASSET = "garmin-mcp.mcpb"  # the release workflow always uploads it under this name
+_update: dict | None = None  # checked once per session, in the background
+
+
+def _version() -> str:
+    try:
+        return json.loads(Path(__file__).with_name("manifest.json").read_text(encoding="utf-8"))["version"]
+    except Exception:  # noqa: BLE001
+        return "0.0.0"
+
+
+def _vtuple(v: str) -> tuple[int, ...]:
+    return tuple(int(x) for x in re.findall(r"\d+", v)[:3])
+
+
+def _check_update() -> dict:
+    """Compare this version with the latest GitHub release (no personal data is sent)."""
+    global _update
+    if _update is None:
+        try:
+            req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/releases/latest",
+                                         headers={"User-Agent": "garmin-mcp", "Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                rel = json.load(r)
+            latest = rel.get("tag_name", "").lstrip("v")
+            asset = next((a for a in rel.get("assets", []) if a.get("name") == RELEASE_ASSET), None)
+            _update = {"current": _version(), "latest": latest,
+                       "update_available": bool(asset) and _vtuple(latest) > _vtuple(_version()),
+                       "download_url": asset and asset["browser_download_url"],
+                       "release_notes": (rel.get("body") or "")[:1500]}
+        except Exception as e:  # noqa: BLE001
+            return {"current": _version(), "error": f"Couldn't check for updates: {type(e).__name__}: {e}"}
+    return _update
+
+
+threading.Thread(target=_check_update, daemon=True).start()
+
+
+def _update_note() -> dict:
+    u = _update or {}
+    if u.get("update_available"):
+        return {"update": f"Version {u['latest']} of the Garmin extension is available (installed: "
+                          f"{u['current']}). Mention it briefly; the user can say 'update Garmin'."}
+    return {}
+
+
+def _open_file(path: Path) -> bool:
+    try:
+        if sys.platform == "win32":
+            os.startfile(path)  # noqa: S606
+        else:
+            subprocess.run(["open", str(path)], check=True, timeout=20)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+@mcp.tool()
+def update_extension() -> dict:
+    """Update this Garmin extension: checks GitHub for a newer version and, if there
+    is one, downloads it and opens Claude's install window, where the user clicks
+    Install. Call it when the user asks to update."""
+    global _update
+    _update = None  # always ask GitHub again
+    u = _check_update()
+    if "error" in u:
+        return u
+    if not u["update_available"]:
+        return {"up_to_date": True, "version": u["current"]}
+    try:
+        folder = Path.home() / "Downloads"
+        folder.mkdir(exist_ok=True)
+        path = folder / f"garmin-mcp-{u['latest']}.mcpb"
+        req = urllib.request.Request(u["download_url"], headers={"User-Agent": "garmin-mcp"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            data = r.read()
+        if data[:2] != b"PK":
+            return {"error": "The downloaded file isn't a valid extension; nothing was changed."}
+        path.write_bytes(data)
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"Download failed: {type(e).__name__}: {e}"}
+    return {
+        "downloaded": str(path),
+        "from_version": u["current"],
+        "to_version": u["latest"],
+        "release_notes": u["release_notes"],
+        "install_window_opened": _open_file(path),
+        "next": "Tell the user to click Install (or Update) in the window Claude opened, then "
+                "start a new chat. If no window appeared: Settings → Extensions, and drag the "
+                f"file {path.name} from their Downloads folder into it. They stay signed in.",
+    }
+
+
 @mcp.prompt(title="Get started with Garmin",
             description="Sign in to Garmin and see what you can do with this connection")
 def get_started() -> str:
@@ -138,7 +238,7 @@ def getting_started() -> dict:
         status = {"signed_in": True, "name": name}
     except Exception:  # noqa: BLE001
         status = {"signed_in": False, "next": "Offer to sign them in with garmin_login first."}
-    return {**status, **WELCOME}
+    return {**status, **WELCOME, **_update_note()}
 
 
 @mcp.tool()
@@ -151,7 +251,7 @@ def garmin_login(switch_account: bool = False) -> dict:
     global _api, _login_page
     if not switch_account and (_login_page is None or not _login_page.active):
         try:
-            return {"signed_in": True, "name": api().get_full_name()}
+            return {"signed_in": True, "name": api().get_full_name(), **_update_note()}
         except Exception:  # noqa: BLE001
             pass  # no or expired tokens: open the page
     opened = False
@@ -160,7 +260,7 @@ def garmin_login(switch_account: bool = False) -> dict:
         opened = webbrowser.open(_login_page.url)
     if _login_page.done.wait(50):
         _api = None  # use the new tokens from now on
-        return {"signed_in": True, "name": _login_page.name, "just_signed_in": True, **WELCOME}
+        return {"signed_in": True, "name": _login_page.name, "just_signed_in": True, **WELCOME, **_update_note()}
     return {
         "signed_in": False,
         "sign_in_page": _login_page.url,

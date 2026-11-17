@@ -1,0 +1,38 @@
+# Builds garmin-mcp.mcpb and publishes it as a GitHub release.
+# Start it by pushing a tag that matches manifest.json's version, e.g.:
+#   git tag v1.1.0 && git push origin v1.1.0
+# Users then get it through the update_extension tool or the README download link.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write  # needed to create the release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check that the tag matches manifest.json
+        run: |
+          v=$(node -p "require('./manifest.json').version")
+          if [ "v$v" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::manifest.json says $v but the tag is $GITHUB_REF_NAME. Bump the version in manifest.json first."
+            exit 1
+          fi
+
+      - name: Build the extension
+        run: npx -y @anthropic-ai/mcpb@2.1.2 pack . dist/garmin-mcp.mcpb
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/garmin-mcp.mcpb --title "$GITHUB_REF_NAME" --generate-notes

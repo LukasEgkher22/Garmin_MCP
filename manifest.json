@@ -64,6 +64,10 @@
       "description": "Open your local training dashboard in the browser"
     },
     {
+      "name": "update_extension",
+      "description": "Check for a newer version and install it"
+    },
+    {
       "name": "daily_overview",
       "description": "Sleep, HRV, training readiness, Body Battery, resting HR, stress, steps"
     },

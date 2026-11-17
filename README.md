@@ -19,6 +19,7 @@ browser, never into the chat, and it is never stored.
 |---|---|
 | `garmin_login` | Opens a sign-in page in your browser (password never goes through the chat) |
 | `getting_started` | What you can do with this connection, with example questions |
+| `update_extension` | Checks for a newer version and opens the install window |
 | `open_dashboard` | Opens the training dashboard in your browser |
 | `daily_overview` | Sleep, HRV, training readiness, Body Battery, resting HR, stress, steps |
 | `list_activities` | Activities in a date range with the key numbers |
@@ -70,9 +71,8 @@ Connect (User Settings → Power Zones) so the watts are right.
 You need the **Claude desktop app** ([claude.ai/download](https://claude.ai/download)).
 The free plan is enough; you don't need Claude Code or a paid plan.
 
-1. **Download `garmin-mcp.mcpb`** from the
-   [latest release](https://github.com/LukasEgkher22/Garmin_MCP/releases/latest)
-   (or use the file someone sent you).
+1. **Download [garmin-mcp.mcpb](https://github.com/LukasEgkher22/Garmin_MCP/releases/latest/download/garmin-mcp.mcpb)**
+   (always the newest version), or use the file someone sent you.
 2. **Install it:** double-click the file, and Claude opens an install window. Click
    **Install**. If double-clicking doesn't work, open Claude → **Settings →
    Extensions** and drag the file into that window.
@@ -151,8 +151,20 @@ desktop runs it with `uv`, which installs Python and the packages from
 npx @anthropic-ai/mcpb pack . dist/garmin-mcp.mcpb
 ```
 After changing dependencies, update `pyproject.toml` and `requirements.txt`, then
-run `uv lock`. For a new release, raise `version` in `manifest.json` and
-`pyproject.toml`, build, and attach `dist/garmin-mcp.mcpb` to a GitHub release.
+run `uv lock`.
+
+### Making a release
+1. Raise `version` in `manifest.json` (e.g. `1.0.0` → `1.1.0`) and commit it.
+2. Tag and push:
+   ```sh
+   git tag v1.1.0
+   git push origin main v1.1.0
+   ```
+GitHub Actions ([release.yml](.github/workflows/release.yml)) then builds
+`garmin-mcp.mcpb` and publishes the release (about a minute). It refuses to run if
+the tag and `manifest.json` disagree. Users get the new version by asking Claude to
+*"update Garmin"*; Claude also mentions it when they sign in or ask for help.
+The repo must be public for this, because users download without a GitHub login.
 
 ## Dashboard
 A local training dashboard in your browser, in the spirit of intervals.icu and
@@ -190,8 +202,9 @@ The date range and sport filters at the top apply to everything below them.
 - The Garmin tools in Claude work without the dashboard.
 
 ## Updating
-- **Extension:** download the new `garmin-mcp.mcpb` and install it the same way.
-  You stay signed in.
+- **Extension:** tell Claude *"update Garmin"*. It checks for a new version, downloads
+  it and opens the install window; click **Install** and start a new chat. You stay
+  signed in. (Or download the file again and install it the same way.)
 - **Manual setup:** replace the files, then fully quit and reopen Claude.
 
 ## If something breaks

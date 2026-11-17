@@ -80,6 +80,13 @@ ChatGPT can't start local servers at all, so it was ruled out).
   instructions tell Claude to use it for new users), `garmin_login` returns `WELCOME`
   after a fresh sign-in, and the browser "Signed in" page lists example questions with
   Copy buttons.
+- Updates: tool `update_extension` reads the latest GitHub release of `REPO`, compares it
+  with `manifest.json`'s version, downloads `garmin-mcp.mcpb` to ~/Downloads and opens it
+  (Claude shows its install window). A background check at startup lets `garmin_login` /
+  `getting_started` mention new versions. Releases: bump `manifest.json` version, push tag
+  `vX.Y.Z`; `.github/workflows/release.yml` builds and publishes (refuses on version
+  mismatch). Needs a public repo (unauthenticated download). `pyproject.toml`'s version
+  doesn't matter (changing it would need `uv lock`).
 - README: new "Install" section for everyone, manual setup for Windows and Mac,
   build steps. Old "Easy setup with Claude" prompt removed. `start_dashboard.command` added.
 - Tested on Windows: bundle unpacked and run with `uv run` and empty uv caches
