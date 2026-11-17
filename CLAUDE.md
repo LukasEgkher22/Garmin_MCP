@@ -89,6 +89,8 @@ ChatGPT can't start local servers at all, so it was ruled out).
   `vX.Y.Z`; `.github/workflows/release.yml` builds and publishes (refuses on version
   mismatch). Needs a public repo (unauthenticated download). `pyproject.toml`'s version
   doesn't matter (changing it would need `uv lock`).
+- Released v1.0.0 (repo made public by the user) and v1.0.1 (update tool shows the
+  file in Explorer/Finder instead of opening it).
 - README: new "Install" section for everyone, manual setup for Windows and Mac,
   build steps. Old "Easy setup with Claude" prompt removed. `start_dashboard.command` added.
 - Tested on Windows: bundle unpacked and run with `uv run` and empty uv caches
