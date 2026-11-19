@@ -20,7 +20,8 @@ Windows, Python 3.13, venv in `.venv`.
 | `start_dashboard.bat` / `.command` | Start the dashboard without Claude (manual setup, Windows / Mac) |
 
 ## Conventions
-- Tools are plain functions with `@mcp.tool()`. Short docstrings matter, because Claude reads them.
+- Tools are plain functions with `@mcp.tool(annotations=READ | WRITES | DELETES)`. Short
+  docstrings matter, because Claude reads them.
 - Garmin calls go through `api()` (lazy login from tokens). Wrap calls in
   `safe(...)` or try/except so a tool returns `{"error": ...}` instead of crashing.
 - `slim()` trims Garmin's large JSON responses before they are returned.
@@ -98,6 +99,15 @@ Windows, Python 3.13, venv in `.venv`.
   `.r.long` CSS); cycling VO2max tile got its 180-day sparkline (was missing); Fitness tab
   charts have plain-language descriptions and its note no longer mentions intervals.icu.
 - Released as v1.1.0 (tag pushed; the release workflow builds the .mcpb).
+
+### 2026-11-19: tool annotations (uncommitted)
+- The user finds it annoying that every tool must be allowed again after an update. An
+  extension can't pre-approve its own tools (a Claude desktop safety feature), and resets after
+  updates are a known Claude desktop issue (user bug reports, no official fix found).
+- Every tool now has MCP annotations (`READ` / `WRITES` / `DELETES` in server.py), so Claude
+  can group read-only tools for one "Always allow". New tools must get one of the three.
+  Whether Claude desktop groups extension tools by this was not checked in the app.
+- README Install section: tip to set read-only tools to Always allow.
 - README restructured (the user's order): intro → "Why I built this" → Tools → Install → How to use it (example
   questions by topic, workout notes, joining activities, tips) → Dashboard → Updating →
   If something breaks → For developers (manual setup, building, releases) → License.

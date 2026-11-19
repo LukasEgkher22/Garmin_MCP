@@ -24,6 +24,7 @@ from typing import Any, Literal
 from garminconnect import Garmin
 from garminconnect import workout as w
 from mcp.server.mcpserver import MCPServer
+from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
 import fitmerge
@@ -55,6 +56,12 @@ mcp = MCPServer(
         "user and wait for an explicit yes before calling it."
     ),
 )
+
+# Tool kinds, so Claude desktop can group permissions: read-only tools can be allowed in one go,
+# while tools that change or delete things on Garmin keep asking.
+READ = ToolAnnotations(read_only_hint=True, open_world_hint=True)
+WRITES = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=True)
+DELETES = ToolAnnotations(read_only_hint=False, destructive_hint=True, open_world_hint=True)
 
 _api: Garmin | None = None
 
@@ -187,7 +194,7 @@ def _show_file(path: Path) -> bool:
         return False
 
 
-@mcp.tool()
+@mcp.tool(annotations=WRITES)
 def update_extension() -> dict:
     """Update this Garmin extension: checks GitHub for a newer version and, if there
     is one, downloads it to the user's Downloads folder and shows it there; the user
@@ -232,7 +239,7 @@ def get_started() -> str:
             "questions I could ask.")
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ)
 def getting_started() -> dict:
     """What this Garmin connection can do, with example questions. Use it when the
     user is new, asks what they can do, or asks for help with Garmin."""
@@ -244,7 +251,7 @@ def getting_started() -> dict:
     return {**status, **WELCOME, **_update_note()}
 
 
-@mcp.tool()
+@mcp.tool(annotations=WRITES)
 def garmin_login(switch_account: bool = False) -> dict:
     """Sign the user in to Garmin Connect. Opens a sign-in page in the user's web
     browser where THEY type their Garmin email, password and (if Garmin asks) a
@@ -283,7 +290,7 @@ def _port_open(port: int) -> bool:
 _dashboard_started = False
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ)
 def open_dashboard() -> dict:
     """Open the user's training dashboard (training load, activities, sleep, HRV,
     swim intervals, calendar) in their web browser. It runs on this computer while
@@ -320,7 +327,7 @@ def open_dashboard() -> dict:
 
 # ---------------------------------------------------------------- read tools
 
-@mcp.tool()
+@mcp.tool(annotations=READ)
 def daily_overview(date: str | None = None) -> dict:
     """Recovery snapshot for one day: sleep, HRV, training readiness,
     Body Battery, resting HR, stress and steps. date = YYYY-MM-DD (default today)."""
@@ -347,7 +354,7 @@ def daily_overview(date: str | None = None) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ)
 def list_activities(start_date: str, end_date: str | None = None) -> list | dict:
     """Activities between two dates (YYYY-MM-DD), with the key numbers:
     type, distance, duration, pace/speed, HR, training effect, load."""
@@ -364,7 +371,7 @@ def list_activities(start_date: str, end_date: str | None = None) -> list | dict
     return slim(out)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ)
 def activity_details(activity_id: str) -> dict:
     """One activity in depth: summary, laps/splits and time in HR zones."""
     g = api()
@@ -375,7 +382,7 @@ def activity_details(activity_id: str) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ)
 def training_status(date: str | None = None) -> dict:
     """Training status, load balance, VO2max and race predictions."""
     d = date or today()
@@ -387,7 +394,7 @@ def training_status(date: str | None = None) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ)
 def scheduled_workouts(year: int, month: int) -> dict:
     """Workouts already on the Garmin calendar for a month."""
     return safe(api().get_scheduled_workouts, year, month)
@@ -590,7 +597,7 @@ def _create(sport: str, name: str, steps: list[Step | Repeat], date: str | None,
 
 
 
-@mcp.tool()
+@mcp.tool(annotations=WRITES)
 def create_run_workout(name: str, steps: list[Step | Repeat], date: str | None = None,
                        description: str | None = None) -> dict:
     """Create a structured RUN workout. Targets: pace_fast/pace_slow ('m:ss' per km),
@@ -600,7 +607,7 @@ def create_run_workout(name: str, steps: list[Step | Repeat], date: str | None =
     return _create("running", name, steps, date, description)
 
 
-@mcp.tool()
+@mcp.tool(annotations=WRITES)
 def create_bike_workout(name: str, steps: list[Step | Repeat], date: str | None = None,
                         description: str | None = None) -> dict:
     """Create a structured BIKE workout. Targets: ftp_low/ftp_high (% of FTP; the watch
@@ -613,7 +620,7 @@ def create_bike_workout(name: str, steps: list[Step | Repeat], date: str | None 
     return _create("cycling", name, steps, date, description)
 
 
-@mcp.tool()
+@mcp.tool(annotations=WRITES)
 def create_swim_workout(name: str, steps: list[Step | Repeat], pool_length_m: float = 25,
                         date: str | None = None, description: str | None = None) -> dict:
     """Create a structured POOL SWIM workout. Use 'meters' for swim steps and 'rest'
@@ -627,13 +634,13 @@ def create_swim_workout(name: str, steps: list[Step | Repeat], pool_length_m: fl
     return _create("swimming", name, steps, date, description, extra)
 
 
-@mcp.tool()
+@mcp.tool(annotations=DELETES)
 def delete_workout(workout_id: str) -> dict:
     """Delete a workout (and its calendar entries) from Garmin Connect."""
     return safe(api().delete_workout, workout_id)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ)
 def cycling_ftp() -> dict:
     """The user's current cycling FTP from Garmin (watts)."""
     return safe(api().get_cycling_ftp)
@@ -708,7 +715,7 @@ def _upload(path: Path, exclude: set[str] = frozenset()) -> dict:
     return out
 
 
-@mcp.tool()
+@mcp.tool(annotations=WRITES)
 def download_fit(activity_id: str) -> dict:
     """Save an activity's original .fit file to the local FIT folder on this computer.
     Returns the file path (use it with merge_fit / upload_fit)."""
@@ -719,7 +726,7 @@ def download_fit(activity_id: str) -> dict:
         return {"error": f"{type(e).__name__}: {e}"}
 
 
-@mcp.tool()
+@mcp.tool(annotations=WRITES)
 def merge_fit(paths: list[str], out_path: str | None = None) -> dict:
     """Merge 2+ local .fit activity files (same sport, not overlapping in time) into
     one activity. The time between them becomes a pause; all laps, GPS and sensor
@@ -745,7 +752,7 @@ def _rename(activity_id: str, name: str) -> bool:
         return False
 
 
-@mcp.tool()
+@mcp.tool(annotations=WRITES)
 def upload_fit(path: str, name: str | None = None) -> dict:
     """Upload a local .fit file to Garmin Connect as a new activity (it then syncs to
     Strava etc. like a watch upload). Optional name sets the activity title."""
@@ -758,7 +765,7 @@ def upload_fit(path: str, name: str | None = None) -> dict:
         return {"error": f"{type(e).__name__}: {e}"}
 
 
-@mcp.tool()
+@mcp.tool(annotations=DELETES)
 def delete_activity(activity_id: str) -> dict:
     """PERMANENTLY delete an activity from Garmin Connect. Only call this after the
     user has explicitly said yes to deleting this specific activity in the chat.
@@ -776,7 +783,7 @@ def delete_activity(activity_id: str) -> dict:
     return {"deleted": True, "activity_id": activity_id, "backup": str(backup)}
 
 
-@mcp.tool()
+@mcp.tool(annotations=WRITES)
 def combine_activities(activity_ids: list[str], name: str | None = None) -> dict:
     """Join 2+ Garmin activities that were split by accident into one: downloads the
     originals, merges them (gaps become pauses, laps kept) and uploads the result.

@@ -81,6 +81,12 @@ The first time Claude starts the extension, it downloads Python and a few
 libraries by itself (about a minute, once). You don't need to install anything else.
 Claude asks for your OK the first time it uses each tool. Allow it.
 
+**Fewer questions:** in Claude, open the extension's settings (Settings → Extensions,
+or the connectors menu in a chat) and set the **read-only** tools to *Always allow*.
+They only read your data. Tools that create, upload or delete things on Garmin are
+marked separately, so you can keep those on *Needs approval*. After an update, Claude
+desktop may ask again; that's Claude's own behavior, not something the extension controls.
+
 ## How to use it
 Open a new chat in Claude. The first time, type *"Get started with Garmin"*: Claude
 signs you in and shows you what you can do. After that, just ask.
