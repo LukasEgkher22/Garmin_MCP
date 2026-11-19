@@ -1,8 +1,8 @@
 {
   "manifest_version": "0.4",
   "name": "garmin-mcp",
-  "display_name": "Garmin Connect (unofficial)",
-  "version": "1.0.1",
+  "display_name": "Training Coach for Garmin (unofficial)",
+  "version": "1.1.0",
   "description": "Lets Claude read your Garmin Connect training data, plan workouts on your Garmin calendar, and open a local training dashboard.",
   "long_description": "Unofficial personal project, not affiliated with or endorsed by Garmin. It runs on your computer and talks only to Garmin. Anything Claude reads through it, including health data, also goes to Anthropic.\n\n**Getting started:** after installing, open a new chat and type *\"Get started with Garmin\"*. A sign-in page opens in your web browser: type your Garmin email and password there (never in the chat). Your password is not saved; only a sign-in token is kept on your computer.\n\nThen ask things like *\"How did I sleep this week?\"*, *\"Plan an interval run for Thursday\"* or *\"Open my training dashboard\"*.",
   "author": {

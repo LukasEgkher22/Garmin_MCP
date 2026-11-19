@@ -100,11 +100,14 @@ th button { background: none; border: 0; padding: 0; cursor: pointer; font-weigh
 .empty { color: var(--muted); padding: 34px 10px; text-align: center; }
 .banner { background: var(--critical-wash); border: 1px solid var(--critical); border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; }
 .note { color: var(--muted); font-size: 12.5px; margin: 14px 2px 0; max-width: 880px; }
-#tip { position: fixed; z-index: 20; pointer-events: none; display: none; min-width: 120px; max-width: 280px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; box-shadow: 0 3px 12px rgba(0,0,0,.16); font-size: 12.5px; }
+#tip { position: fixed; z-index: 20; pointer-events: none; display: none; min-width: 120px; max-width: 330px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; box-shadow: 0 3px 12px rgba(0,0,0,.16); font-size: 12.5px; }
 #tip .t { color: var(--muted); margin-bottom: 3px; }
 #tip .r { display: flex; align-items: center; gap: 7px; }
-#tip .r b { font-weight: 600; font-variant-numeric: tabular-nums; }
+#tip .r b { font-weight: 600; font-variant-numeric: tabular-nums; flex: none; white-space: nowrap; }
+#tip .r.long { align-items: flex-start; margin-top: 3px; }
+#tip .r.long b { min-width: 34px; text-align: right; }
 #tip .r span { color: var(--ink2); }
+#tip .n { color: var(--muted); font-size: 11.5px; margin-top: 5px; line-height: 1.35; }
 .cal { display: grid; grid-template-columns: repeat(7, minmax(112px, 1fr)) 104px; gap: 1px; background: var(--grid); border: 1px solid var(--grid); border-radius: 8px; overflow: hidden; min-width: 900px; }
 .cal > div { background: var(--surface); padding: 5px 6px; min-height: 92px; min-width: 0; }
 .cal .dow { min-height: 0; color: var(--muted); font-size: 12px; font-weight: 600; }
@@ -238,7 +241,7 @@ function prepare(raw) {
   }));
   const today = dn(raw.today);
   const days = new Map(Object.entries(raw.days).map(([k, v]) => [dn(k), cleanDay(v)]));
-  return {acts, rawActs: sorted, days, today, profile: raw.profile || {}, lastSync: raw.lastSync, staleAfter: raw.staleAfter, cache: {}};
+  return {acts, rawActs: sorted, days, today, profile: raw.profile || {}, runLaps: raw.runLaps || {}, lastSync: raw.lastSync, staleAfter: raw.staleAfter, cache: {}};
 }
 const inSport = a => S.sport === "all" || a.sport === S.sport;
 const useMonths = () => RANGES[S.range] == null || RANGES[S.range] > 200;
@@ -307,8 +310,8 @@ function meanOf(key, from, to) {
 /* ---------------------------------------------------------------- tooltip */
 const tip = document.getElementById("tip");
 function showTip(title, rows, x, y) {
-  tip.replaceChildren(h("div", {class: "t"}, title), ...rows.map(r =>
-    h("div", {class: "r"}, r.color ? h("span", {class: "key-line", style: `background:${r.color}`}) : null, h("b", null, r.value), h("span", null, r.name))));
+  tip.replaceChildren(h("div", {class: "t"}, title), ...rows.map(r => r.note ? h("div", {class: "n"}, r.note) :
+    h("div", {class: r.long ? "r long" : "r"}, r.color ? h("span", {class: "key-line", style: `background:${r.color}`}) : null, h("b", null, r.value), h("span", null, r.name))));
   tip.style.display = "block";
   const w = tip.offsetWidth, ht = tip.offsetHeight;
   tip.style.left = Math.max(6, x + 14 + w > innerWidth ? x - w - 14 : x + 14) + "px";
@@ -660,13 +663,15 @@ function viewFitness(main) {
   const metricsTable = () => ({cols: ["Date", {name: "Fitness", n: 1}, {name: "Fatigue", n: 1}, {name: "Form %", n: 1}],
     rows: days.map((d, i) => [fmtDay(d), one(ctlV[i]), one(atlV[i]), int(formV[i])]).reverse()});
   main.append(h("div", {class: "section"}, card({
-    title: "Fitness and fatigue", sub: "Your Garmin training load, averaged over 42 days (fitness) and 7 days (fatigue)",
+    title: "Fitness and fatigue", sub: "Fitness is your training load averaged over 6 weeks: it grows slowly with steady training. " +
+      "Fatigue is the last 7 days: it jumps after hard days and drops quickly when you rest",
     legend: [seriesKey("var(--accent)", "Fitness"), seriesKey("var(--fatigue)", "Fatigue")], table: metricsTable,
     draw: (el, W) => lineChart(el, W, {x: days, h: 250, zero: true, aria: "Fitness and fatigue over time",
       series: [{name: "Fatigue", color: "var(--fatigue)", values: atlV, label: true, fmt: int}, {name: "Fitness", color: "var(--accent)", values: ctlV, label: true, fmt: int}]}),
   })));
   main.append(h("div", {class: "section"}, card({
-    title: "Form", sub: "(Fitness − fatigue) ÷ fitness. Negative means you're carrying fatigue", table: metricsTable,
+    title: "Form", sub: "How fresh you are: (fitness − fatigue) ÷ fitness. −10 to −30 % is productive training, " +
+      "below −30 % is a lot of stress at once, +5 to +20 % is rested and ready to race", table: metricsTable,
     draw: (el, W) => {
       const vs = formV.filter(v => v != null);
       lineChart(el, W, {x: days, h: 190, aria: "Form over time", yFmt: v => int(v) + "%", yMin: Math.max(-90, Math.min(-40, ...vs)), yMax: Math.min(70, Math.max(30, ...vs)),
@@ -677,11 +682,11 @@ function viewFitness(main) {
   })));
   const b = bucketSeries(rangeActs(), a => a.load);
   main.append(h("div", {class: "section"}, card({
-    title: `Training load per ${bucketWord()}`, sub: "Stacked by sport",
+    title: `Training load per ${bucketWord()}`, sub: "How much training you did, by sport. Load is Garmin's figure per activity: longer or harder sessions count more",
     legend: b.series.map(x => seriesKey(x.color, x.name, true)), table: tableFromBuckets(b, int),
     draw: (el, W) => stackChart(el, W, {...b, h: 220, aria: "Training load over time, by sport", bandTitle: bucketTitle, tipFmt: int}),
   })));
-  main.append(h("p", {class: "note"}, "Load is Garmin's per-activity training load (EPOC based), the only load figure present on every sport. It is not TSS, so absolute fitness numbers won't match intervals.icu or Strava. The trend and form percentage are what carry over. Zone names and cut-offs are modelled on intervals.icu, which is built around TSS; Garmin's load is spikier, so treat the zones as a guide rather than a verdict."));
+  main.append(h("p", {class: "note"}, "Load is Garmin's training load per activity, the only load figure Garmin has for every sport. Other apps calculate load differently, so the fitness numbers won't match them; the trend and the form percentage are what compare. Garmin's load jumps more from day to day than other load figures, so treat the form zones as a guide rather than a verdict."));
 }
 
 /* ---------------------------------------------------------------- Training tab */
@@ -861,13 +866,17 @@ const RECORD_NAMES = {
   "pr.label.1000m.poolswim": ["Swim 1,000 m", "time"], "pr.label.1500m.poolswim": ["Swim 1,500 m", "time"],
 };
 /* ---------------------------------------------------------------- race prediction model
-   Every race-like effort is projected to the race distance with Riegel's formula T = t × (D/d)^1.06,
-   and the projections are averaged with weight w = e^(−age/90 days) × type weight × e^(−|ln(D/d)|),
-   so recent efforts and efforts close to the race distance count most. */
+   Level: every race-like effort is projected to the race distance with Riegel's formula
+   T = t × (D/d)^1.06, and the projections are averaged with weight
+   w = e^(−age/90 days) × type weight × e^(−|ln(D/d)|).
+   In words: twice the distance takes about 2.1 × the time; a run counts half after ~2 months
+   (90 × ln 2 = 62 days) and half if it is twice or half the race distance.
+   Trend: each effort is then moved by how much fitter or less fit the easy runs say you are
+   now than on the day of that effort (see fitnessOn), capped at ±3 %. */
 const RACE_DISTS = [["r5k", "5 km", 5000], ["r10k", "10 km", 10000], ["rHalf", "Half marathon", 21097.5], ["rFull", "Marathon", 42195]];
-const MODEL = {riegel: 1.06, tauDays: 90, maxAgeDays: 365, offBike: 0.95, repToTenK: 3,
+const MODEL = {riegel: 1.06, tauDays: 90, maxAgeDays: 365, offBike: 0.95, repToTenK: 3, minM: 3000, minMin: 12,
   kindWeight: {race: 1, "off-bike": 0.8, intervals: 0.7}};
-/* Sessions the automatic rule can't judge from the summary: runs off the bike (time × 0.95 = fresh
+/* Sessions the automatic rule can't judge: runs off the bike (time × 0.95 = fresh
    equivalent) and interval sets (1 km reps with ≤ 90 s jog ≈ 10 km race pace minus 3 s/km). */
 const KEY_EFFORTS = {
   23326944239: {kind: "off-bike", label: "70.3 Helsingør run"},
@@ -879,29 +888,101 @@ function hrMax() {
   const pick = list.find(x => x && /RUN|DEFAULT/i.test(x.sport || "") && x.maxHeartRateUsed) || list.find(x => x && x.maxHeartRateUsed);
   return pick ? pick.maxHeartRateUsed : 192;
 }
-/* Any other run of 3+ km and 12+ min counts as race-like when its average HR is at least
-   (0.95 − 0.035 × ln(minutes / 15)) × max HR: 95% for a 15-min effort, ~89% at 75 min, ~87% at 2.5 h. */
+/* Race-like: 3+ km and 12+ min with an average HR of at least this share of max HR.
+   With x = ln(minutes / 15): 0.95 − 0.030x − 0.0087x², i.e. 95 % for 15 min, 92.5 % for 30 min,
+   88 % for 75 min, 84 % for 2.5 h, 80 % for 4 h. Strict for short efforts (so tempo runs stay out),
+   gentler for long ones (a typical marathon averages 80–88 % of max HR). */
+function hrNeeded(min) { const x = Math.log(min / 15); return 0.95 - 0.030 * x - 0.0087 * x * x; }
+const hardEnough = (hr, min, max) => hr / max >= hrNeeded(min);
+/* The hard part of a run: the stretch of whole laps that is race-like and projects to the fastest
+   10 km. Finds a 5 km test after a warm-up, a parkrun inside a long run, or the whole run for a race.
+   dashboard.py caches the laps ([m, s, avg HR]) of runs with a high max HR. */
+function hardestStretch(laps, max) {
+  let best = null;
+  for (let i = 0; i < laps.length; i++) {
+    let d = 0, t = 0, hrSum = 0, hrSecs = 0;
+    for (let j = i; j < laps.length; j++) {
+      const [ld, lt, lh] = laps[j];
+      d += ld; t += lt;
+      if (lh) { hrSum += lh * lt; hrSecs += lt; }
+      if (d < MODEL.minM || t / 60 < MODEL.minMin || !hrSecs || !hardEnough(hrSum / hrSecs, t / 60, max)) continue;
+      const score = t * (10000 / d) ** MODEL.riegel;
+      if (!best || score < best.score) best = {d, t, score};
+    }
+  }
+  return best;
+}
 function raceEfforts() {
   const D = S.data;
   if (D.cache.efforts) return D.cache.efforts;
   const max = hrMax(), out = [];
   for (const r of D.rawActs) {
     if (sportOf(r.type || "") !== "run" || SKIP_EFFORTS.has(r.activityId)) continue;
-    const key = KEY_EFFORTS[r.activityId];
-    let d = r.distance || 0, t = r.duration || r.movingDuration || 0, kind = "race";
+    const key = KEY_EFFORTS[r.activityId], laps = D.runLaps[r.activityId];
+    let d = r.distance || 0, t = r.duration || r.movingDuration || 0, kind = "race", detail;
     if (key) {
       kind = key.kind;
-      if (kind === "off-bike") t *= MODEL.offBike;
-      if (kind === "intervals") { d = 10000; t = 10 * (key.repAvgS * 1000 / key.repM + MODEL.repToTenK); }
+      if (kind === "off-bike") { t *= MODEL.offBike; detail = `${km(d)} off the bike, counted as ${clock(t)} fresh`; }
+      if (kind === "intervals") { d = 10000; t = 10 * (key.repAvgS * 1000 / key.repM + MODEL.repToTenK); detail = `counted as 10 km in ${clock(t)}`; }
+    } else if (r.race) {
+      if (d < MODEL.minM) continue;
+      detail = `${km(d)} in ${clock(t)}, marked as a race`;
+    } else if (laps && laps.length) {
+      const part = hardestStretch(laps, max);
+      if (!part) continue;
+      detail = part.d < d - 300 ? `${km(part.d)} of ${km(d)} in ${clock(part.t)}` : `${km(part.d)} in ${clock(part.t)}`;
+      d = part.d; t = part.t;
     } else {
       const min = (r.movingDuration || r.duration || 0) / 60;
-      if (d < 3000 || min < 12 || !r.averageHR) continue;
-      if (r.averageHR / max < 0.95 - 0.035 * Math.log(min / 15)) continue;
+      if (d < MODEL.minM || min < MODEL.minMin || !r.averageHR || !hardEnough(r.averageHR, min, max)) continue;
     }
     if (!d || !t) continue;
-    out.push({id: r.activityId, day: dn(r.startTimeLocal), label: (key && key.label) || r.activityName || "Run", kind, d, t});
+    out.push({id: r.activityId, day: dn(r.startTimeLocal), label: (key && key.label) || r.activityName || "Run",
+              kind, d, t, detail: detail || `${km(d)} in ${clock(t)}`});
   }
   return (D.cache.efforts = out);
+}
+/* Trend from easy runs. For each steady outdoor run (20+ min, average HR 65–88 % of max) the fitness
+   it shows is estimated from pace and heart rate: VO2 cost of the pace (Daniels) divided by the share of
+   heart rate reserve used. Single runs are noisy and read low (heat, fatigue, drift), so only the median
+   of 4 weeks of runs is used, and only to compare two dates with each other: the bias cancels out. */
+const TREND = {days: 28, minRuns: 4, cap: 0.03, timePerFitness: 0.85, hrLo: 0.65, hrHi: 0.88, minMin: 20,
+  types: /^(running|street_running|track_running)$/};
+const vo2Cost = v => -4.60 + 0.182258 * v + 0.000104 * v * v; // ml/kg/min at v metres per minute
+function median(a) { const s = a.slice().sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
+function restingHr(day) {
+  const D = S.data, vals = [];
+  for (let d = day - TREND.days; d <= day; d++) { const r = D.days.get(d); if (r && r.rhr) vals.push(r.rhr); }
+  return vals.length >= 5 ? median(vals) : null;
+}
+function steadyRuns() {
+  const D = S.data;
+  if (D.cache.steady) return D.cache.steady;
+  const max = hrMax(), out = [];
+  for (const r of D.rawActs) {
+    const min = (r.movingDuration || r.duration || 0) / 60, d = r.distance || 0, hr = r.averageHR;
+    if (!TREND.types.test(r.type || "") || r.race || KEY_EFFORTS[r.activityId] || SKIP_EFFORTS.has(r.activityId)) continue;
+    if (!hr || min < TREND.minMin || d < MODEL.minM || hr / max < TREND.hrLo || hr / max > TREND.hrHi) continue;
+    const day = dn(r.startTimeLocal), rest = restingHr(day);
+    if (!rest || hr - rest < 0.3 * (max - rest)) continue;
+    out.push({day, fit: (vo2Cost(d / min) - 3.5) / ((hr - rest) / (max - rest)) + 3.5});
+  }
+  return (D.cache.steady = out);
+}
+function fitnessOn(day) {
+  const C = S.data.cache.fitness || (S.data.cache.fitness = new Map());
+  if (!C.has(day)) {
+    const vals = steadyRuns().filter(x => x.day > day - TREND.days && x.day <= day).map(x => x.fit);
+    C.set(day, vals.length >= TREND.minRuns ? {fit: median(vals), n: vals.length} : null);
+  }
+  return C.get(day);
+}
+/* Time factor for an effort from `then`, predicted on `now`: < 1 means you got fitter, so faster. */
+function trendFactor(then, now) {
+  if (now - then < 7) return 1;
+  const a = fitnessOn(then), b = fitnessOn(now);
+  if (!a || !b) return 1;
+  return Math.min(1 + TREND.cap, Math.max(1 - TREND.cap, (a.fit / b.fit) ** TREND.timePerFitness));
 }
 function predictOn(day, dist) {
   let sw = 0, swt = 0;
@@ -909,20 +990,33 @@ function predictOn(day, dist) {
   for (const e of raceEfforts()) {
     const age = day - e.day;
     if (age < 0 || age > MODEL.maxAgeDays) continue;
-    const proj = e.t * (dist / e.d) ** MODEL.riegel;
+    const trend = trendFactor(e.day, day), proj = e.t * (dist / e.d) ** MODEL.riegel * trend;
     const w = Math.exp(-age / MODEL.tauDays) * MODEL.kindWeight[e.kind] * Math.exp(-Math.abs(Math.log(dist / e.d)));
-    sw += w; swt += w * proj; parts.push({e, proj, w});
+    sw += w; swt += w * proj; parts.push({e, proj, w, trend});
   }
   if (!sw) return null;
   parts.forEach(x => { x.share = x.w / sw; });
-  return {time: swt / sw, parts: parts.sort((a, b) => b.share - a.share)};
+  return {time: swt / sw, day, parts: parts.sort((a, b) => b.share - a.share)};
 }
+const trendText = f => `${f < 1 ? "−" : "+"}${(Math.abs(f - 1) * 100).toFixed(1)} %`;
 function modelTip(p) {
-  if (!p) return [{value: "–", name: "Claude model: no race-like effort in the 12 months before"}];
-  const rows = [{value: "T = t × (D/d)^1.06", name: "each effort projected to the race distance"},
-                {value: "w = e^(−age/90) × type × e^(−|ln(D/d)|)", name: "weighted average"}];
-  for (const x of p.parts.slice(0, 3))
-    rows.push({value: `${clock(x.proj)} · ${Math.round(x.share * 100)}%`, name: `${x.e.label}, ${dayShort.format(toDate(x.e.day))}`});
+  if (!p) return [{note: "Claude model: no race-like run in the 12 months before this day."}];
+  const rows = [{note: "Claude model, from these runs:"}];
+  for (const x of p.parts.slice(0, 4))
+    rows.push({long: true, value: `${Math.round(x.share * 100)} %`,
+               name: `${x.e.label}, ${dayShort.format(toDate(x.e.day))}: ${x.e.detail} → ${clock(x.proj)}` +
+                     (Math.abs(x.trend - 1) >= 0.001 ? ` (trend ${trendText(x.trend)})` : "")});
+  const rest = p.parts.length - 4;
+  if (rest > 0) rows.push({note: `+ ${rest} more ${rest === 1 ? "run" : "runs"} with smaller shares`});
+  const now = fitnessOn(p.day);
+  rows.push({note: "Each run is scaled to this distance: twice as far takes about 2.1 × the time. " +
+    "Recent runs and runs close to this distance count most: a run counts half as much after 2 months, " +
+    "and half as much if it's twice or half as long." +
+    (p.parts.some(x => x.e.kind !== "race") ? " Workouts and runs off the bike count a bit less than races." : "")});
+  rows.push({note: now
+    ? `Trend: each run is moved by how your fitness changed since then, from pace and heart rate on your easy runs ` +
+      `(${now.n} in the 4 weeks before this day; at most ±3 %). Minus = faster.`
+    : "Trend: not enough easy runs with heart rate in the 4 weeks before this day, so no trend is applied."});
   return rows;
 }
 function viewPerformance(main) {
@@ -938,7 +1032,7 @@ function viewPerformance(main) {
   const i20 = POWER_SECS.indexOf(1200);
   if (showBike && curve[i20]) tiles.push(tile("Best 20 min in range", int(curve[i20].value), "W", {text: `All-time ${int(allTime[i20].value)} W`}));
   if (showRun && v1) tiles.push(tile("VO₂max, running", one(v1.value), null, {text: dayShort.format(toDate(v1.day))}, dayValues(to - 180, to, "vo2run")));
-  if (showBike && v2) tiles.push(tile("VO₂max, cycling", one(v2.value), null, {text: dayShort.format(toDate(v2.day))}));
+  if (showBike && v2) tiles.push(tile("VO₂max, cycling", one(v2.value), null, {text: dayShort.format(toDate(v2.day))}, dayValues(to - 180, to, "vo2bike")));
   if (showRun && thr.heartRate) tiles.push(tile("Threshold HR, running", int(thr.heartRate), "bpm"));
   if (showBike && thr.heartRateCycling) tiles.push(tile("Threshold HR, cycling", int(thr.heartRateCycling), "bpm"));
   if (showRun) for (const [key, label, dist] of RACE_DISTS) {
@@ -950,7 +1044,7 @@ function viewPerformance(main) {
 
   if (showRun) main.append(h("div", {class: "grid g2 section"}, RACE_DISTS.map(([key, label, dist]) => {
     const garmin = dayValues(start, to, key), preds = days.map(d => predictOn(d, dist)), model = preds.map(p => p ? p.time : null);
-    return card({title: `Predicted ${label}`, sub: "Claude's model from your race-like efforts and key sessions, against Garmin's prediction. Faster is higher; hover for the formula",
+    return card({title: `Predicted ${label}`, sub: "Claude's model from your hardest runs, against Garmin's prediction. Faster is higher; hover to see which runs it uses",
       legend: [seriesKey("var(--accent)", "Claude model"), seriesKey("var(--mark-muted)", "Garmin")],
       table: () => ({cols: ["Date", {name: "Claude model", n: 1}, {name: "Garmin", n: 1}],
         rows: days.map((d, i) => [fmtDay(d), model[i] == null ? null : clock(model[i]), garmin[i] == null ? null : clock(garmin[i])]).filter(r => r[1] || r[2]).reverse()}),
@@ -959,6 +1053,22 @@ function viewPerformance(main) {
                  {name: "Claude model", color: "var(--accent)", values: model, span: true, label: true, fmt: clock}],
         tipExtra: i => modelTip(preds[i])})});
   })));
+  if (showRun) {
+    const hasModel = RACE_DISTS.some(([, , dist]) => predictOn(to, dist));
+    main.append(h("p", {class: "note"},
+      (hasModel ? "" : "No Claude estimate yet: there's no race-like run in the last 12 months. ") +
+      "How the Claude model works: it uses your race-like runs from the last 12 months, i.e. 3+ km and 12+ minutes " +
+      "with an average heart rate close to your max (95 % for a 15-minute effort, 88 % for 75 minutes, 84 % for 2.5 hours), " +
+      "and runs marked as a race in Garmin Connect. " +
+      "That can also be the hard part of a longer run, like a 5 km test after a warm-up; it's found from the laps. " +
+      "Each run is scaled to the race distance (twice as far takes about 2.1 × the time), and recent runs and runs " +
+      "close to that distance count most. Your easy runs set the trend: pace against heart rate shows whether you got " +
+      "fitter or less fit since each hard run, and moves its result by up to 3 %. " +
+      "Hover over a chart to see which runs it uses and how much each one counts. " +
+      "To get or update an estimate, run a hard effort, such as a race, a parkrun or a time trial, then press Sync. " +
+      `Max heart rate comes from your heart rate zones in Garmin Connect (now ${hrMax()} bpm); if it's set too high, ` +
+      "fewer runs count."));
+  }
 
   if (showBike) {
     const xTicks = [1, 5, 30, 60, 300, 1200, 3600].map(v => ({v, label: secsLabel(v)}));

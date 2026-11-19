@@ -11,6 +11,7 @@ The server listens on this computer only and is read-only towards Garmin.
 import argparse
 import datetime as dt
 import json
+import re
 import sqlite3
 import threading
 import time
@@ -41,11 +42,18 @@ STALE_AFTER = 3600      # the page triggers a sync if the last one is older than
 STREAM_POINTS = 700     # per-activity chart resolution
 ROUTE_POINTS = 500
 DETAIL_VERSION = 2      # bump when read_details() returns new fields; older cached details are re-read
+ACTIVITY_LIST_VERSION = 2  # bump when slim_activity() keeps new fields; the next sync re-reads the full list
 LAP_FIELDS = (
     "startTimeGMT", "distance", "movingDuration", "duration", "averageSpeed", "averageHR", "maxHR",
     "averagePower", "normalizedPower", "averageBikeCadence", "averageRunCadence", "elevationGain",
     "swimStroke", "averageSWOLF", "averageStrokes", "totalNumberOfStrokes",
 )
+
+# Race predictions: laps of hard runs, so a hard part inside a longer run (a 5 km test
+# after a warm-up, a parkrun in a long run) counts too. The page decides what is race-like.
+LAP_DAYS = 400              # the model only looks back 12 months
+LAP_MIN_MAX_HR = 0.90       # only runs whose max HR got this close to the user's max HR
+LAP_READS_PER_SYNC = 40     # backfill is spread over a few syncs
 
 ACTIVITY_FIELDS = (
     "activityId", "activityName", "startTimeLocal", "distance", "duration", "movingDuration",
@@ -104,6 +112,8 @@ def merge_days(con: sqlite3.Connection, updates: dict[str, dict]) -> None:
 def slim_activity(a: dict) -> dict:
     row = {k: a[k] for k in ACTIVITY_FIELDS if a.get(k) not in (None, "")}
     row["type"] = (a.get("activityType") or {}).get("typeKey") or "other"
+    if (a.get("eventType") or {}).get("typeKey") == "race":  # marked as "Race" in Garmin Connect
+        row["race"] = True
     return row
 
 
@@ -168,6 +178,43 @@ def garmin_load(today: dt.date) -> dict | None:
             "acute": acute.get("dailyTrainingLoadAcute"), "chronic": acute.get("dailyTrainingLoadChronic")}
 
 
+def hr_max(profile: dict) -> float:
+    """Max HR from Garmin's heart rate zones (same choice as hrMax() in dashboard.html)."""
+    zones = profile.get("hrZones")
+    zones = zones if isinstance(zones, list) else [zones] if zones else []
+    zones = [z for z in zones if isinstance(z, dict) and z.get("maxHeartRateUsed")]
+    pick = next((z for z in zones if re.search("RUN|DEFAULT", z.get("sport") or "", re.I)), zones[0] if zones else None)
+    return pick["maxHeartRateUsed"] if pick else 192
+
+
+def read_run_laps(con: sqlite3.Connection, today: dt.date, profile: dict) -> None:
+    """Cache [distance m, duration s, avg HR] per lap for hard runs, once per run."""
+    store = kv_get(con, "run_laps", {})
+    floor = LAP_MIN_MAX_HR * hr_max(profile)
+    todo = []
+    for (j,) in con.execute("SELECT json FROM activities WHERE day >= ? ORDER BY day DESC",
+                            ((today - dt.timedelta(days=LAP_DAYS)).isoformat(),)):
+        a = json.loads(j)
+        if ("run" in a.get("type", "") and str(a["activityId"]) not in store
+                and (a.get("maxHR") or 0) >= floor and (a.get("distance") or 0) >= 3000):
+            todo.append(a["activityId"])
+    g = api()
+    for i, aid in enumerate(todo[:LAP_READS_PER_SYNC]):
+        set_status(message=f"Reading laps of hard runs ({i + 1} of {min(len(todo), LAP_READS_PER_SYNC)})")
+        try:
+            laps = (g.get_activity_splits(aid) or {}).get("lapDTOs") or []
+        except Exception as e:  # noqa: BLE001
+            if "TooManyRequests" in type(e).__name__:
+                raise
+            with status_lock:
+                status["warnings"].append(f"laps of {aid}: {e}")
+            continue
+        store[str(aid)] = [[round(x["distance"], 1), round(x["duration"], 1), x.get("averageHR")]
+                           for x in laps if x.get("distance") and x.get("duration")]
+        kv_set(con, "run_laps", store)
+        time.sleep(CALL_PAUSE)
+
+
 def chunks(start: dt.date, end: dt.date) -> list[list[str]]:
     """Date windows from newest to oldest, so recent data appears first."""
     out, hi = [], end
@@ -209,10 +256,12 @@ def run_sync() -> None:
     try:
         g = api()
         first_sync = kv_get(con, "last_sync") is None
+        # slim_activity() gained a field: read the whole list again once, so old rows get it too.
+        full_list = first_sync or kv_get(con, "activity_list_version", 1) < ACTIVITY_LIST_VERSION
 
         # Activities: full history once, then just the recent window.
         set_status(message="Reading activities")
-        since = today - dt.timedelta(days=365 * HISTORY_YEARS if first_sync else RECENT_ACTIVITY_DAYS)
+        since = today - dt.timedelta(days=365 * HISTORY_YEARS if full_list else RECENT_ACTIVITY_DAYS)
         acts = g.get_activities_by_date(since.isoformat(), today.isoformat())
         seen = set()
         for a in acts:
@@ -225,6 +274,7 @@ def run_sync() -> None:
             if aid not in seen:
                 con.execute("DELETE FROM activities WHERE id = ?", (aid,))
         con.commit()
+        kv_set(con, "activity_list_version", ACTIVITY_LIST_VERSION)
 
         # Wellness: the recent window every time, plus whatever backfill is still pending.
         endpoints = wellness_endpoints()
@@ -271,6 +321,7 @@ def run_sync() -> None:
                     status["warnings"].append(f"{key}: {e}")
             time.sleep(CALL_PAUSE)
         kv_set(con, "profile", profile)
+        read_run_laps(con, today, profile)
         kv_set(con, "last_sync", time.time())
         set_status(message="Up to date", error=None)
     except Exception as e:  # noqa: BLE001
@@ -343,6 +394,7 @@ async def data(_: Request) -> JSONResponse:
             "activities": [json.loads(r[0]) for r in con.execute("SELECT json FROM activities ORDER BY day")],
             "days": {r[0]: json.loads(r[1]) for r in con.execute("SELECT day, json FROM days ORDER BY day")},
             "profile": kv_get(con, "profile", {}),
+            "runLaps": kv_get(con, "run_laps", {}),
             "lastSync": kv_get(con, "last_sync"),
             "staleAfter": STALE_AFTER,
             "today": dt.date.today().isoformat(),

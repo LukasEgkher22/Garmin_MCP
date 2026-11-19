@@ -60,6 +60,53 @@ Windows, Python 3.13, venv in `.venv`.
 
 ## History
 
+### 2026-11-19: README for job hunting, race estimate note (uncommitted)
+- The user wants to show the project for job hunting (software developer roles) and
+  tested the extension on a Mac on 2026-11-18: it works. Manifest version is 1.1.0.
+- Rename to "Stride Coach" was tried and reverted (the user didn't like it); the repo is
+  still `Garmin_MCP` and a new name may come. If the repo gets renamed: change `REPO` in
+  server.py, manifest URLs and README, but keep `manifest.name` (`garmin-mcp`, so Claude
+  treats it as the same extension), the release file `garmin-mcp.mcpb` (installs ≤1.0.1
+  look for that name) and the MCP server name `garmin`. Old installs then reach the repo
+  through GitHub's redirect, so the old name must never be reused for a new repo.
+- Name decision: repo stays `Garmin_MCP`; only `display_name` changed to
+  "Training Coach for Garmin (unofficial)" (never "Garmin Coach": that's Garmin's product).
+- License stays MIT (the user's copyright is already in LICENSE).
+- dashboard.html: a note under the race prediction charts explains the Claude model, how to
+  get an estimate (a hard race-like run, then Sync) and shows the max HR in use. It starts
+  with "No Claude estimate yet" when no model estimate exists.
+- Race model finds hard parts inside runs: `dashboard.py` `read_run_laps()` caches
+  `[m, s, avg HR]` per lap (kv `run_laps`, served as `runLaps`) for runs ≤400 days old whose
+  max HR ≥ 90 % of max HR (≤40 Garmin calls per sync, once per run). `hardestStretch()` in
+  dashboard.html picks the lap stretch (3+ km, 12+ min) that passes the HR rule and projects
+  to the fastest 10 km. Runs with laps no longer use the whole-run rule. Motivation: the
+  17 Nov 5k test (25106461851: warm-up + 5 km in 16:42) was missed before. Checked on real
+  data: it now counts 72 % of the 5 km estimate (16:39). Tooltip explains the weights in words.
+- Race model, same day: HR bar is now `hrNeeded(min)` = 0.95 − 0.030x − 0.0087x², x = ln(min/15)
+  (95 % at 15 min … 84 % at 2.5 h, 80 % at 4 h; the user's marathon at 87.0 % had only just
+  passed the old bar). Runs marked "race" in Garmin (`eventType.typeKey`, stored as `race: true`,
+  `ACTIVITY_LIST_VERSION = 2` forces one full list re-read) always count. None are marked yet.
+- Trend (the user's idea: easy runs move the hard efforts): `steadyRuns()` estimates fitness per
+  steady run (65–88 % HRmax, 20+ min, outdoor run types) as Daniels VO2 cost of pace ÷ share of
+  heart rate reserve (resting HR = 4-week median). `fitnessOn(day)` = 4-week median (≥4 runs).
+  Each effort's projection × (fitness then / now)^0.85, capped ±3 %. Plain HR weighting was
+  rejected: HR-based estimates of the user's easy runs read 40 s–1:30 slow on 5 km and scatter
+  16:25–21:00 (that's Garmin's failure mode). Backtest on 3 races (prediction from data before
+  each): mean abs error 2.6 % → 1.2 %. Harness for this: load `/api/data`, eval the model block
+  in node with stub helpers (rebuilt in the scratchpad each time, not kept in the repo).
+- Dashboard polish: tooltip rows with long text keep the value on one line (`long: true` rows,
+  `.r.long` CSS); cycling VO2max tile got its 180-day sparkline (was missing); Fitness tab
+  charts have plain-language descriptions and its note no longer mentions intervals.icu.
+- Released as v1.1.0 (tag pushed; the release workflow builds the .mcpb).
+- README restructured (the user's order): intro → "Why I built this" → Tools → Install → How to use it (example
+  questions by topic, workout notes, joining activities, tips) → Dashboard → Updating →
+  If something breaks → For developers (manual setup, building, releases) → License.
+  Nothing removed, only moved and grouped.
+- README: "Planning workouts" now explains goal-based suggestions; Dashboard section
+  explains the race prediction model (Garmin often predicted a sub-12-min 5 km for the user).
+  Note: `KEY_EFFORTS` / `SKIP_EFFORTS` in dashboard.html are the user's own activity ids;
+  for other users only the automatic heart-rate rule applies.
+
 ### 2026-11-17: Mac support and one-click Desktop Extension (uncommitted)
 Goal: non-technical users on Mac or Windows install it by opening one file; the free
 Claude desktop plan is enough (ChatGPT Free can't add custom MCP servers, and
